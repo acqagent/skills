@@ -1,0 +1,18 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Python (in case anyone runs the script in-tree)
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+
+# Generated reports
+*.docx
+*.tmp

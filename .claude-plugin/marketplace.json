@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "acqagent",
+  "owner": {
+    "name": "AcqAgent",
+    "email": "acqagent.ai@gmail.com",
+    "url": "https://acqagent.ai"
+  },
+  "description": "Open-source Claude skills for federal acquisition — FAR research, clause checks, and compliance groundwork.",
+  "plugins": [
+    {
+      "name": "far-clause-checker",
+      "source": "./plugins/far-clause-checker",
+      "description": "Validates FAR provisions and clauses against the Revolutionary FAR Overhaul (RFO) and HHS Agency Deviation Matrix. Bundles the 22 April 2026 DAU Provision & Clause Matrix and produces a standalone .docx compliance report. FAR only; no DFARS.",
+      "version": "2.1.0",
+      "tags": ["far", "rfo", "compliance", "federal-acquisition", "clauses", "hhs"],
+      "homepage": "https://acqagent.ai/skills/far-clause-checker"
+    }
+  ]
+}
