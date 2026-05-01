@@ -1,6 +1,47 @@
 # CHANGELOG
 
-## v2.1 (current)
+## v2.2 (current)
+
+DAU Provision & Clause Matrix updated from the 22 April 2026 release to the 29 April 2026 release. Sourced from dau.edu per the matrix's own Change Summary sheet (most recent update: 2026-04-29). The Change Summary describes this release as containing "various corrections to the commercial columns."
+
+### Matrix changes
+
+Compared to the 22 April 2026 matrix:
+
+- **1 new FAR clause added:** 52.222-90 (Addressing DEI Discrimination by Federal Contractors), dated JAN 2022, marked RFO=ADD.
+- **0 clauses removed.**
+- **0 date changes** to existing clauses.
+- **0 title changes.**
+- **1 P/C reclassification:** 52.240-92 Alt II (Security Requirements) flipped from Provision (P) to Clause (C).
+- **1 prescription text rewrite:** 52.204-10 (Reporting Executive Compensation and First-Tier Subcontract Awards) prescription was reworded.
+- **37 commercial-column corrections** spread across 19 unique clauses (each cell affecting COM_SUP, COM_SVC, or both):
+  - 6 clauses gained applicability in both commercial columns: 52.203-18, 52.204-9, 52.219-2, 52.222-18, 52.222-48, 52.244-6.
+  - 12 clauses had applicability removed from both commercial columns: 52.204-10, 52.209-7, 52.209-9, 52.214-29, 52.219-7 Alt I, 52.222-1, 52.223-1, 52.225-14, 52.226-6, 52.232-31, 52.232-39, 52.252-5.
+  - 1 clause had applicability removed from COM_SUP only: 52.222-20 (Contracts for Materials, Supplies, Articles, and Equipment).
+- **0 deviation-flag changes.**
+
+These commercial-column corrections matter operationally because v2 made `--commercial yes` check ONLY the COM_<purpose> columns. Prior to 22 April these columns had inconsistencies that this DAU release is now patching.
+
+### Regression results
+
+Re-ran a 20-profile regression panel (mix of contract types, purposes, methods, set-asides, and parts filters) against both the 22 April matrix and the 29 April matrix:
+
+- All 20 profiles completed without errors.
+- Total applicable clauses across the 20 profiles: 12,060 to 12,078 (+18, dominated by 52.222-90 newly applying in 18 of 20 profiles).
+- Total critical findings: 5,552 to 5,554 (+2).
+- Commercial-only deltas isolated cleanly to the two commercial profiles in the panel: 52.219-2 (Equal Low Bids) now applies on commercial procurements; 52.214-29 (Order of Precedence-Sealed Bidding) no longer applies on commercial procurements.
+- Parts-19 and Parts-52 filtered runs showed zero delta, as expected: the new clause (52.222-90) sits outside both filters.
+
+### File rename
+
+The bundled matrix filename changed:
+
+- Before: `WarU_Provision___Clause_Matrix__22_Apr_2026.xlsx`
+- After: `WarU_Provision___Clause_Matrix__29_Apr_2026.xlsx`
+
+The script's `find_data_files()` function globs for any xlsx in references/ matching the "Provision" pattern, so the rename is cosmetic. No code change required.
+
+## v2.1
 
 DAU Provision & Clause Matrix updated from the 9 March 2026 release to the 22 April 2026 release. Sourced from dau.edu per the matrix's own Change Summary sheet (most recent update: 2026-04-22).
 

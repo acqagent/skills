@@ -9,15 +9,15 @@ This skill validates FAR provisions and clauses against the restructured FAR (po
 
 **Important**: This skill covers FAR (Federal Acquisition Regulation) clauses only. Disregard all DFARS content in the source data.
 
-## Version Notes (v2.1)
+## Version Notes (v2.2)
 
-This is version 2.1 of the skill. Compared to v1, the applicability logic was hardened, a Part 19 set-aside filter was added, and the bundled DAU Matrix was updated to the 22 April 2026 release. Key behavioral changes:
+This is version 2.2 of the skill. Compared to v1, the applicability logic was hardened, a Part 19 set-aside filter was added, and the bundled DAU Matrix has been refreshed through the 29 April 2026 release. Key behavioral changes:
 
 - **Strict AND applicability.** A clause is now applicable only when contract type matches AND at least one of (purpose, method) matches. The previous fallback that returned Applicable on contract type alone was removed. This makes `--purpose`, `--method`, and `--commercial` actually filter output instead of being silently ignored.
 - **Commercial flag isolation.** Commercial procurements now check ONLY the COM_<purpose> columns. The previous fall-through to non-commercial columns has been removed.
 - **Set-aside filter.** The `--small-biz` parameter now filters Part 19 socioeconomic clauses based on the set-aside value. See "Set-Aside Filtering" below for the rule table.
 - **Data caveat.** The bundled DAU Matrix has very flat method-column distribution (about 93% of FAR clauses have NEG set as a method). This means the AND-logic fix does not narrow the applicable-clause list as aggressively as one might intuit from reading FAR Part prescriptions. Niche purposes like Architect-Engineering still return roughly 700 clauses rather than the 30 to 50 a CO might expect from Part 36 alone. The fix is correct relative to the spec; the data is what it is.
-- **Bundled matrix version.** The DAU Provision & Clause Matrix bundled in v2.1 is the 22 April 2026 release. Prior v2 shipped with the 9 March 2026 release. The script auto-discovers any xlsx file in references/ matching the "Provision" pattern, so swapping in a newer DAU release does not require code changes — just drop it into references/ and remove the old one.
+- **Bundled matrix version.** The DAU Provision & Clause Matrix bundled in v2.2 is the 29 April 2026 release. Prior v2.1 shipped with the 22 April 2026 release; v2 originally shipped with the 9 March 2026 release. The script auto-discovers any xlsx file in references/ matching the "Provision" pattern, so swapping in a newer DAU release does not require code changes — just drop it into references/ and remove the old one.
 - **What was NOT fixed.** The date-comparison anchor (Recommendation 3 from the stress test) and the Updated-clause branching gaps (Recommendation 4) remain open. The "Action Needed (Date Mismatch)" counts in reports are still inflated because the script compares the Matrix Date against the HHS Deviation Date rather than a true user-supplied clause date. Treat critical findings as suggestive, not authoritative, until that fix is made.
 
 ## Data Sources

@@ -1,6 +1,6 @@
 {
   "name": "far-clause-checker",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "FAR provision and clause compliance checker for the Revolutionary FAR Overhaul (RFO). Cross-references the DAU Provision & Clause Matrix against HHS deviations to produce a standalone .docx compliance report. FAR only; no DFARS.",
   "author": {
     "name": "AcqAgent",
