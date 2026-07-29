@@ -1,45 +1,41 @@
 # CHANGELOG
 
-## v2.2 (current)
+## v3 (current)
 
-DAU Provision & Clause Matrix updated from the 22 April 2026 release to the 29 April 2026 release. Sourced from dau.edu per the matrix's own Change Summary sheet (most recent update: 2026-04-29). The Change Summary describes this release as containing "various corrections to the commercial columns."
+Both bundled data sources were replaced, and the checker was redesigned around what the new files can actually support.
 
-### Matrix changes
+### Data source replacement
 
-Compared to the 22 April 2026 matrix:
+- **Removed:** `WarU_Provision___Clause_Matrix__22_Apr_2026.xlsx` (DAU matrix) and `Revolutionary_FAR_Overhaul_HHS_Matrix.csv` (HHS disposition csv).
+- **Added:** `Smart_Matrix__Acquisition_GOV.csv` (acquisition.gov Smart Matrix, FAR 52.2xx baseline: 809 rows, 610 numbers plus 199 alternates) and `HHSAR_Deviations_JUL_2026.xlsx` (HHSAR 352.2xx matrix: 85 rows, 75 numbers, with status, class deviations, IBR, PCO fill-ins, UCF, and coded applicability).
 
-- **1 new FAR clause added:** 52.222-90 (Addressing DEI Discrimination by Federal Contractors), dated JAN 2022, marked RFO=ADD.
-- **0 clauses removed.**
-- **0 date changes** to existing clauses.
-- **0 title changes.**
-- **1 P/C reclassification:** 52.240-92 Alt II (Security Requirements) flipped from Provision (P) to Clause (C).
-- **1 prescription text rewrite:** 52.204-10 (Reporting Executive Compensation and First-Tier Subcontract Awards) prescription was reworded.
-- **37 commercial-column corrections** spread across 19 unique clauses (each cell affecting COM_SUP, COM_SVC, or both):
-  - 6 clauses gained applicability in both commercial columns: 52.203-18, 52.204-9, 52.219-2, 52.222-18, 52.222-48, 52.244-6.
-  - 12 clauses had applicability removed from both commercial columns: 52.204-10, 52.209-7, 52.209-9, 52.214-29, 52.219-7 Alt I, 52.222-1, 52.223-1, 52.225-14, 52.226-6, 52.232-31, 52.232-39, 52.252-5.
-  - 1 clause had applicability removed from COM_SUP only: 52.222-20 (Contracts for Materials, Supplies, Articles, and Equipment).
-- **0 deviation-flag changes.**
+The new files are disjoint clause families with no join key (FAR 52.x vs HHSAR 352.x), unlike the old pair, which joined on FAR clause number. All join logic was removed; lookups route by number prefix.
 
-These commercial-column corrections matter operationally because v2 made `--commercial yes` check ONLY the COM_<purpose> columns. Prior to 22 April these columns had inconsistencies that this DAU release is now patching.
+### Redesign
 
-### Regression results
+- **Clause-list-first workflow.** Check mode now takes the user's actual clause list (file or inline) and validates each entry. Checklist mode (no clause list) builds the HHSAR required and as-applicable lists for the action parameters plus a FAR inventory for requested parts.
+- **Grid applicability removed.** The Smart Matrix has no contract type, purpose, or method columns, so the v2 parameter-driven FAR applicability engine is gone. FAR applicability now points at each clause's prescription reference. HHSAR applicability is evaluated from the coded column (R-All, R-Over SAT, A-Cost Only, and the rest of the legend vocabulary).
+- **New checks:** HHSAR status (Reserved and Removed rows are do-not-use), class deviation currency with citation, PCO fill-in notes, HHSAR applicability fit, missing required HHSAR clauses, and missing set-aside clauses. The v2 set-aside rules table carried over unchanged.
+- **Recommendation 3 from the stress tests is now genuinely fixed.** Date checks compare the user's own clause dates (parsed from the clause list) against the current effective or deviation date. The v2.1 proxy that reused matrix dates, which inflated Action Needed counts, no longer exists.
+- **Recommendation 4 is resolved by removal.** The Updated-disposition branching (fallback bucket, unreachable Review status) went away with the disposition file. The new status set (valid, action_needed, review, removed, not_found) is fully reachable and covered by tests.
 
-Re-ran a 20-profile regression panel (mix of contract types, purposes, methods, set-asides, and parts filters) against both the 22 April matrix and the 29 April matrix:
+### CLI changes (breaking)
 
-- All 20 profiles completed without errors.
-- Total applicable clauses across the 20 profiles: 12,060 to 12,078 (+18, dominated by 52.222-90 newly applying in 18 of 20 profiles).
-- Total critical findings: 5,552 to 5,554 (+2).
-- Commercial-only deltas isolated cleanly to the two commercial profiles in the panel: 52.219-2 (Equal Low Bids) now applies on commercial procurements; 52.214-29 (Order of Precedence-Sealed Bidding) no longer applies on commercial procurements.
-- Parts-19 and Parts-52 filtered runs showed zero delta, as expected: the new clause (52.222-90) sits outside both filters.
+- `--clauses` added: path to a clause-list file, or an inline semicolon-separated list. Its presence selects check mode; its absence selects checklist mode.
+- `--contract-type` values changed to FFP, FFP_LOE, COST, TM (was FP, CR, TM).
+- `--over-sat yes|no` added ("no" also covers simplified acquisitions).
+- `--purpose` and `--method` retired. They are accepted and ignored with a printed note so v2 invocations fail soft.
+- `--commercial`, `--small-biz`, `--parts`, `--output`, `--data-dir` unchanged. All parameters now have defaults; nothing is required.
 
-### File rename
+### Data quirks handled
 
-The bundled matrix filename changed:
+Typo'd number 352.215.70 normalized to 352.215-70 (on load and on user input); RESERVED and DO NOT USE OR ENFORCE prefixes; literal `<br>` tags in one class deviation number; non-breaking and narrow no-break spaces plus a stray tab in dates and titles; underscore alternate labels (`52.203-6_Alternate I`), which defeat a regex word boundary; duplicate HHSAR numbers (base plus alternate rows, and the paired Removed/Reserved rows for 352.209-1).
 
-- Before: `WarU_Provision___Clause_Matrix__22_Apr_2026.xlsx`
-- After: `WarU_Provision___Clause_Matrix__29_Apr_2026.xlsx`
+### Test results
 
-The script's `find_data_files()` function globs for any xlsx in references/ matching the "Provision" pattern, so the rename is cosmetic. No code change required.
+Verified against the bundled files: checklist mode under FFP/over-SAT/noncommercial (5 required, 49 as-applicable, 3 not-applicable) and COST/under-SAT (4 required, including 352.233-71 via its noncommercial cost code); a 14-entry check-mode list covering every status branch, both date-mismatch directions, the typo'd number, alternates, set-aside mismatch under NONE and the flip under HUBZONE, out-of-scope DFARS entries, and unparseable lines; missing-required-HHSAR and missing-set-aside detection under NONE and HUBZONE; inline clause parsing; FFP_LOE satisfying the "A- Cost, T&M/LH, and FFP LOE" code.
+
+There is no separate README in this skill; this changelog is the running record of changes.
 
 ## v2.1
 
