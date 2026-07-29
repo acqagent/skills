@@ -1,7 +1,7 @@
 {
   "name": "far-clause-checker",
-  "version": "2.2.0",
-  "description": "FAR provision and clause compliance checker for the Revolutionary FAR Overhaul (RFO). Cross-references the DAU Provision & Clause Matrix against HHS deviations to produce a standalone .docx compliance report. FAR only; no DFARS.",
+  "version": "3.0.0",
+  "description": "FAR and HHSAR provision and clause compliance checker for the Revolutionary FAR Overhaul (RFO). Validates a user's clause list against the acquisition.gov Smart Matrix (FAR 52.2xx) and the JUL 2026 HHSAR Deviations matrix (HHSAR 352.2xx) to produce a standalone .docx compliance report. FAR and HHSAR only; no DFARS.",
   "author": {
     "name": "AcqAgent",
     "email": "acqagent.ai@gmail.com",
@@ -9,6 +9,6 @@
   },
   "homepage": "https://acqagent.ai/skills/far-clause-checker",
   "repository": "https://github.com/acqagent/skills",
-  "keywords": ["far", "rfo", "compliance", "federal-acquisition", "clauses", "hhs"],
+  "keywords": ["far", "hhsar", "rfo", "compliance", "federal-acquisition", "clauses"],
   "license": "MIT"
 }

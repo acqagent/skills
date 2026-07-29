@@ -1,187 +1,153 @@
 ---
 name: far-clause-checker
-description: FAR provision and clause compliance checker for the Revolutionary FAR Overhaul (RFO). Use this skill whenever the user asks about FAR clauses, provisions, clause matrices, RFO compliance, clause applicability, incorporation by reference, FAR deviation dates, removed or consolidated clauses, contract clause checks, or anything related to validating FAR 52.2xx provisions against the restructured FAR. Also trigger when the user says things like 'check my clauses', 'run the FAR checker', 'clause compliance', 'RFO check', 'which clauses apply', 'is this clause still valid', 'what changed in the FAR overhaul', or mentions HHS deviations, DAU matrix, or provision/clause worksheets. This skill works with FAR clauses only — disregard any DFARS content. The skill prompts the user for contract parameters (contract type, FAR parts, small business requirements) and then cross-references against the DAU Provision & Clause Matrix and HHS deviation data to produce a standalone compliance report.
+description: FAR and HHSAR provision and clause compliance checker for the Revolutionary FAR Overhaul (RFO). Use this skill whenever the user asks about FAR clauses, HHSAR clauses, provisions, clause matrices, RFO compliance, clause applicability, incorporation by reference, deviation dates, class deviations, removed or reserved clauses, contract clause checks, Section I validation, or validating FAR 52.2xx or HHSAR 352.2xx provisions against the restructured FAR. Also trigger when the user says things like 'check my clauses', 'run the FAR checker', 'clause compliance', 'RFO check', 'which clauses apply', 'is this clause still valid', 'what changed in the FAR overhaul', or mentions HHSAR deviations, the Smart Matrix, or provision/clause worksheets. FAR and HHSAR only; disregard DFARS content. Takes the user's clause list (or contract parameters for a checklist), validates against the acquisition.gov Smart Matrix and JUL 2026 HHSAR deviation matrix, and produces a standalone compliance report.
 ---
 
-# FAR Clause Checker — RFO Compliance Skill
+# FAR Clause Checker (v3)
 
-This skill validates FAR provisions and clauses against the restructured FAR (post-RFO) using two authoritative data sources bundled in the `references/` directory. It produces a standalone compliance report as a `.docx` file.
+Validates FAR 52.2xx and HHSAR 352.2xx provisions and clauses against current baselines during the Revolutionary FAR Overhaul (RFO) period, and produces a standalone compliance report as a Word document.
 
-**Important**: This skill covers FAR (Federal Acquisition Regulation) clauses only. Disregard all DFARS content in the source data.
+## Version notes (v3)
 
-## Version Notes (v2.2)
+The v3 data sources replaced both v2 files, and the two new files have different shapes AND different semantics:
 
-This is version 2.2 of the skill. Compared to v1, the applicability logic was hardened, a Part 19 set-aside filter was added, and the bundled DAU Matrix has been refreshed through the 29 April 2026 release. Key behavioral changes:
+- The old DAU matrix (xlsx, applicability grid, RFO flags, IBR, full text) was replaced by the acquisition.gov **Smart Matrix** (csv). The Smart Matrix is a lean FAR 52.2xx baseline: number, title, effective date, prescription reference, P or C. It has NO applicability grid, so the v2 parameter-driven "generate the applicable clause list" workflow no longer exists for FAR clauses.
+- The old HHS disposition csv (FAR clause dispositions) was replaced by the **HHSAR Deviations JUL 2026** workbook (xlsx). This file covers HHSAR 352.2xx clauses, not FAR clause dispositions: status (Active, Reserved, Removed), class deviation citations, dated deviation annotations, IBR, PCO fill-ins, UCF sections, and coded applicability.
+- The two files are disjoint clause families with no join key. 52.x lookups go to the Smart Matrix; 352.x lookups go to the HHSAR matrix.
+- The primary input is now the user's clause list. Real user-supplied dates anchor the date checks, which fixes the v2.1 known issue where matrix dates were used as a proxy and inflated the Action Needed count.
 
-- **Strict AND applicability.** A clause is now applicable only when contract type matches AND at least one of (purpose, method) matches. The previous fallback that returned Applicable on contract type alone was removed. This makes `--purpose`, `--method`, and `--commercial` actually filter output instead of being silently ignored.
-- **Commercial flag isolation.** Commercial procurements now check ONLY the COM_<purpose> columns. The previous fall-through to non-commercial columns has been removed.
-- **Set-aside filter.** The `--small-biz` parameter now filters Part 19 socioeconomic clauses based on the set-aside value. See "Set-Aside Filtering" below for the rule table.
-- **Data caveat.** The bundled DAU Matrix has very flat method-column distribution (about 93% of FAR clauses have NEG set as a method). This means the AND-logic fix does not narrow the applicable-clause list as aggressively as one might intuit from reading FAR Part prescriptions. Niche purposes like Architect-Engineering still return roughly 700 clauses rather than the 30 to 50 a CO might expect from Part 36 alone. The fix is correct relative to the spec; the data is what it is.
-- **Bundled matrix version.** The DAU Provision & Clause Matrix bundled in v2.2 is the 29 April 2026 release. Prior v2.1 shipped with the 22 April 2026 release; v2 originally shipped with the 9 March 2026 release. The script auto-discovers any xlsx file in references/ matching the "Provision" pattern, so swapping in a newer DAU release does not require code changes — just drop it into references/ and remove the old one.
-- **What was NOT fixed.** The date-comparison anchor (Recommendation 3 from the stress test) and the Updated-clause branching gaps (Recommendation 4) remain open. The "Action Needed (Date Mismatch)" counts in reports are still inflated because the script compares the Matrix Date against the HHS Deviation Date rather than a true user-supplied clause date. Treat critical findings as suggestive, not authoritative, until that fix is made.
+## Data sources
 
-## Data Sources
+Two files in `references/`:
 
-Before running any checks, read the column mapping and data dictionary in `references/DATA_DICTIONARY.md`. This explains exactly how to parse both source files.
+1. **Smart Matrix (csv)**: the FAR 52.2xx baseline (809 rows: 610 clause numbers plus 199 alternates).
+2. **HHSAR Deviations JUL 2026 (xlsx)**: HHSAR 352.2xx clauses (85 rows, 75 distinct numbers) with status, deviations, and applicability codes.
 
-1. **DAU Provision & Clause Matrix** (`references/` — the `.xlsx` file)
-   - The master reference for all FAR provisions and clauses
-   - Contains: clause numbers, titles, dates, prescriptions, P/C type, RFO flags, IBR authorization, UCF sections, applicability by contract type/purpose/method, full text, alternate/deviation flags
-   - **Matrix sheet** is the primary data sheet; header row is row 6 (0-indexed), data starts at row 7
-   - Filter to `Regulation == "FAR"` only (column index 34)
-
-2. **HHS Agency Deviation Matrix** (`references/` — the `.csv` file)
-   - Agency-specific (HHS) disposition tracking for each clause post-RFO
-   - Columns: Part, Type, Number, Pre-RFO Title, Pre-RFO Date, RFO Title, HHS Deviation Date, Disposition, Notes
-   - Disposition values: `No Change`, `Removed`, `Updated`
-   - `--` in HHS Deviation Date means no agency deviation applies
+Before parsing either file directly, read `references/DATA_DICTIONARY.md`. It documents the column maps, the applicability code vocabulary, and the data quirks (a typo'd clause number, RESERVED and DO NOT USE prefixes, HTML artifacts, duplicate numbers, messy dates). The bundled script already handles all of these.
 
 ## Workflow
 
-### Step 1: Gather User Inputs
+### Step 1: Gather inputs
 
-Prompt the user for these parameters (since actual acquisition data is not included, these general inputs drive applicability logic):
+The most useful input is the user's actual clause list (their solicitation or contract Section I, or any list of clause numbers with dates). Ask for it first. Accept any reasonable format; the script parses each line for a clause number, an optional Alternate, an optional month-year date, and the word "deviation" if cited. Titles are ignored.
 
-1. **Contract Type** — which of: Fixed-Price (FP), Cost-Reimbursement (CR), Time & Materials / Labor Hour (T&M/LH)
-2. **Contract Purpose** — which of: Supplies (SUP), Services (SVC), R&D, Construction (CON), Leasehold/Motor Vehicle (LMV), Commercial Services (COM SVC), Dismantling/Demolition/Removal (DDR), Architect-Engineering (A-E), Transportation (TRN), Utility Services (UTL SVC), Commercial Supplies, Commercial Services
-3. **Solicitation Method** — which of: Simplified Acquisition Procedures (SAP), Sealed Bidding (SLD BID), Negotiated (NEG CON), or ≤$350K threshold
-4. **Small Business Requirements** — which of: NONE, SB (total small business set-aside), 8A, HUBZONE, SDVOSB, WOSB. This now actively filters Part 19 clauses; see "Set-Aside Filtering" below.
-5. **Is this a commercial acquisition?** — Yes/No (determines whether COMM column and commercial purpose columns apply). With v2 this is a hard switch: commercial=yes checks ONLY commercial columns.
-6. **Any specific FAR Part focus?** — e.g., Part 12, Part 15, Part 19, or "all"
+Also collect, with defaults if the user does not care:
 
-If the user has already provided some of these in their message, don't re-ask — just confirm and proceed.
+1. **Contract type**: FFP, FFP_LOE (level of effort), COST, or TM (time and materials / labor hour). Default FFP.
+2. **Over the SAT?**: yes or no. "No" also stands in for simplified acquisitions. Default yes.
+3. **Commercial?**: yes or no. Default no.
+4. **Small business set-aside**: NONE, SB, 8A, HUBZONE, SDVOSB, or WOSB. Default NONE.
+5. **FAR parts focus** (optional): part numbers for the FAR inventory in checklist mode, e.g., "19, 27".
 
-### Step 2: Parse the Data Sources
+These parameters drive the HHSAR applicability checks and the set-aside checks. They cannot filter FAR clauses (the Smart Matrix has no applicability grid); FAR applicability comes from each clause's prescription reference.
 
-Read the data dictionary first: `references/DATA_DICTIONARY.md`
+If the user has no clause list, run checklist mode instead (Step 3) to build an HHSAR checklist and a FAR inventory for their parts of interest.
 
-Load and parse both files using Python (openpyxl for xlsx, csv module for csv). Key parsing rules:
+Do not re-ask for anything the user already provided.
 
-- **Excel Matrix**: Read the "Matrix" sheet. Row 6 (0-indexed) contains column headers. Data rows start at row 7. Filter rows where column 34 (Regulation) == "FAR".
-- **Applicability codes**: `A` = Required when applicable, `R` = Required, `O` = Optional, blank = Not applicable
-- **RFO column** (index 7): `RFO X` means affected by the FAR overhaul
-- **IBR column** (index 9): `Yes` = authorized for IBR, `No` = must use full text, `Yes*` = IBR authorized under conditions at FAR 52.102(c)
-- **CSV**: Parse all rows. Join to Excel data on clause Number matching column index 1.
+### Step 2: Know the data
 
-### Step 3: Run the Compliance Checks
+Read `references/DATA_DICTIONARY.md` if you need to parse the files directly or explain a finding's provenance. For normal runs the script is the parser; do not hand-roll pandas over the xlsx.
 
-For each FAR clause/provision that is applicable based on user inputs, perform these checks:
+### Step 3: Run the checker
 
-#### Check 1: Applicability (v2 strict AND-logic)
-A clause is applicable only when ALL of the following hold:
-- The contract-type column for the user's contract type is non-blank, AND
-- Either at least one of the user's purposes matches a non-blank purpose column (using COM_<purpose> columns when commercial=yes, regular purpose columns when commercial=no), OR at least one of the user's methods matches a non-blank method column.
+Check mode (clause list provided):
 
-Contract type alone does NOT make a clause applicable. Purpose alone or method alone matched without contract type does NOT make a clause applicable.
+```bash
+python3 scripts/far_checker.py \
+  --clauses /path/to/clause_list.txt \
+  --contract-type FFP --over-sat yes --commercial no \
+  --small-biz NONE --output report.json
+```
 
-After the base applicability decision, the set-aside filter (see below) may override the result for certain Part 19 clauses.
+`--clauses` also accepts an inline list, entries separated by semicolons:
 
-#### Check 2: RFO Impact (Date-Aware)
-Check the RFO column (index 7). If `RFO X`, the clause was affected by the FAR overhaul. Cross-reference with the HHS CSV Disposition column:
-- **No Change** → Status = "Valid" (green). No action required.
-- **Removed** → Status = "REMOVED" (red). Critical finding.
-- **Updated** → Apply date-aware comparison logic:
+```bash
+python3 scripts/far_checker.py \
+  --clauses "52.212-5 (Mar 2026); 352.203-70 (JUN 2026) Deviation" \
+  --contract-type FFP --over-sat yes --output report.json
+```
 
-**Date normalization:** Parse both the user-provided date and the HHS Deviation Date into (month, year) pairs. Handle formats like "Jan-2026 Deviation", "Nov 2025", "2-Jun-25", "Jul 2025", "JAN 2026", "MAY 2014", etc. Strip the word "Deviation" before parsing. Return None for "--", empty, or unparseable strings.
+Checklist mode (no clause list):
 
-**For clauses where HHS Disposition = "Updated":**
+```bash
+python3 scripts/far_checker.py \
+  --contract-type COST --over-sat yes --commercial no \
+  --small-biz 8A --parts 19,27 --output checklist.json
+```
 
-1. **If the user's date matches or is newer than the HHS deviation date, AND the user includes a "Deviation" tag** → Status = "Valid" (green). Note: "No action required — user date matches current deviation version."
+Notes:
 
-2. **If there is no HHS deviation date (value is "--") but the user lists a "Deviation" tag** → Status = "Review" (yellow). Note: "HHS shows no agency deviation. Verify deviation source and authority."
+- The script auto-discovers the data files in `references/` (csv with "matrix" or "smart" in the name; xlsx with "hhsar" or "deviation"). Point `--data-dir` elsewhere to override.
+- The v2 arguments `--purpose` and `--method` are retired. They are accepted but ignored, with a printed note, because the Smart Matrix carries no purpose or method columns.
+- `--contract-type` values changed in v3: FFP, FFP_LOE, COST, TM (v2 used FP, CR, TM).
 
-3. **If the user's date is older than the HHS deviation date** → Status = "Action Needed" (red). Note: "User date (X) is older than current HHS deviation date (Y). Update to current version." Add to critical findings.
+### Step 4: Generate the report
 
-**Comparison rule:** User date >= HHS deviation date (by year first, then month) means the user has the current or newer version.
+Read the output JSON and generate a Word document. Read `/mnt/skills/public/docx/SKILL.md` first and follow it. Structure the report as described under "Report structure" below. Save the JSON alongside the docx if the user wants the raw data.
 
-**Known limitation (v2):** The script currently uses the Matrix Date column as a proxy for the user clause date because no real user-clause-list input has been implemented. This causes Updated clauses where the HHS deviation is newer than the Matrix baseline to flag as Action Needed even when the user has not actually been asked for a date. Treat these critical findings as suggestive until a real user-clause-list input is added.
+## What the checker does
 
-#### Check 3: Incorporation Method
-Check IBR column (index 9):
-- `Yes` → can be incorporated by reference
-- `No` → must be incorporated by full text
-- `Yes*` → conditional IBR per FAR 52.102(c)
-Flag any mismatch if the user indicates they're incorporating by reference a clause that requires full text.
+Check mode, per clause:
 
-#### Check 4: Date Validation
-Date comparison for Updated clauses is now handled in Check 2. Only flag date issues here when there is an actual mismatch between the Matrix date (column 3) and HHS Deviation Date (CSV) that was NOT already caught by Check 2's Updated-clause logic.
+**FAR 52.2xx (against the Smart Matrix)**
 
-#### Check 5: Deviation Status
-Check the Deviation Flag (column 41) and HHS Deviation Date in the CSV. Flag any clause where:
-- An agency deviation date exists (not `--`)
-- The deviation flag is set in the Matrix
-- The disposition is anything other than "No Change"
+1. **Existence**: unknown numbers are flagged CRITICAL (wrong number, removed or reserved in the restructured FAR, or agency-unique).
+2. **Alternate existence**: a cited Alternate that is not in the matrix is flagged, and the known alternates are listed.
+3. **Date currency**: the user's date vs the matrix effective date. Older is a CRITICAL Date Mismatch; missing or unparseable dates go to Review.
+4. **Set-aside fit** (Part 19): clauses that conflict with the stated set-aside are flagged (e.g., 52.219-3 in a non-HUBZone action).
 
-#### Check 6: Removed / Consolidated Clauses
-For any clause where the HHS Disposition is `Removed` or the RFO Title is `[Reserved]`:
-- Flag the clause as no longer valid
-- Check if the Notes column in the CSV provides guidance on where the content was consolidated
-- If the Pre-RFO Title differs significantly from the RFO Title, note the change
+**HHSAR 352.2xx (against the HHSAR matrix)**
 
-### Set-Aside Filtering (v2)
+5. **Status**: Reserved and Removed (DO NOT USE OR ENFORCE) clauses are CRITICAL; the report cites the class deviation or court order behind the status.
+6. **Deviation currency**: the user's date vs the current version or class deviation date. Older is a CRITICAL Date Mismatch. If the user cites a deviation the matrix does not show, that is a Review finding; if the matrix shows a deviation the user did not cite, the report notes the citation to add.
+7. **IBR**: clauses not authorized for incorporation by reference get a full-text-required warning.
+8. **PCO fill-ins**: clauses with contracting officer fill-ins get a verify-completed note.
+9. **Applicability fit**: the coded applicability (e.g., R-Over SAT, A-Cost Only) is evaluated against the contract type, SAT position, and commercial flag; mismatches are flagged for review.
 
-The `--small-biz` parameter filters a specific subset of Part 19 clauses. The rules:
+**List-level checks**
 
-| Clause | Set-aside required |
-|---|---|
-| 52.219-1, 52.219-8, 52.219-28 | Always applicable (universal representations and reporting) |
-| 52.219-3, 52.219-4 | HUBZONE only |
-| 52.219-6, 52.219-7 | SB (total small business set-aside) only |
-| 52.219-14 | Any small business set-aside (anything other than NONE) |
-| 52.219-17, 52.219-18 | 8A only |
-| 52.219-27 | SDVOSB only |
-| 52.219-29, 52.219-30 | WOSB only |
-| 52.219-9, 52.219-16 | NONE only (large-business prime with subcontracting plan) |
+10. **Missing required HHSAR clauses**: Active HHSAR clauses whose R-code fits the action but that are absent from the list.
+11. **Missing set-aside clauses**: expected 52.219 clauses for the stated set-aside that are absent from the list.
 
-Other Part 19 clauses (52.219-10, -11, -12, -13, -31, -32, -33) are not set-aside-conditional in this filter and pass through based on the standard applicability logic.
+Checklist mode instead outputs: HHSAR clauses grouped into required, as-applicable, and not-applicable for the given parameters (with prescriptions, IBR, UCF, fill-in flags, and deviation citations), plus a FAR clause inventory for the requested parts with prescription references and set-aside annotations.
 
-If a user specifies a set-aside that does not match a clause's required set-aside, the clause is excluded from the report regardless of other applicability factors. If a clause is not in the set-aside rule table, the set-aside parameter has no effect on that clause.
+## Set-aside filtering (FAR Part 19)
 
-### Step 4: Generate the Compliance Report
+Unchanged from v2. The rules table in the script maps twelve Part 19 clauses:
 
-Read the docx SKILL.md at `/mnt/skills/public/docx/SKILL.md` before generating the report.
+- 52.219-1, 52.219-8, 52.219-28: always expected (universal)
+- 52.219-3, 52.219-4: HUBZone only
+- 52.219-6, 52.219-7: total or partial small business set-aside only
+- 52.219-14: any small business set-aside
+- 52.219-17, 52.219-18: 8(a) only
+- 52.219-27: SDVOSB only
+- 52.219-29, 52.219-30: WOSB only
+- 52.219-9, 52.219-16: NONE only (large-business prime with subcontracting plan)
 
-Produce a `.docx` compliance report with these sections:
+## Report structure
 
-1. **Report Header**
-   - Title: "FAR Clause Compliance Report — RFO Validation"
-   - Date generated
-   - Contract parameters used (contract type, purpose, method, etc.)
+Title page: procurement parameters, run date, data sources (Smart Matrix; HHSAR Deviations JUL 2026).
 
-2. **Executive Summary**
-   - Total clauses checked
-   - Count by status: Valid (No Action Required), Action Needed (Date Mismatch), Review (Verify Deviation Source), Removed by RFO, Not Found in Matrix
-   - Critical findings count
-   - Note: Clauses are marked Valid when the user's date matches the current deviation version, not only when the HHS disposition says "No Change."
+Check-mode sections:
 
-3. **Applicable Clauses Table (Clause-by-Clause Analysis)**
-   - Clause Number | Title | Date | P/C | IBR | Status | Notes
-   - Status legend:
-     - **Green = Valid (No Action)** — Clause is current. Includes both unchanged clauses AND updated clauses where the user already has the correct deviation version.
-     - **Yellow = Review (Verify Deviation Source)** — User lists a deviation but HHS has no corresponding deviation on file. Needs verification.
-     - **Red = Action Needed (Date Mismatch)** — User's date is older than the current HHS deviation date. Must update.
-     - **Red = Removed by RFO** — Clause was removed. Critical.
-     - **Gray = Not Found in Matrix** — Clause not in DAU Matrix (may be agency-specific).
+1. **Executive summary**: counts by status, critical findings, warnings.
+2. **Status legend**: Valid (green), Action Needed / Date Mismatch (red), Removed or Reserved (red), Review (yellow), Not Found (gray).
+3. **FAR clauses**: table with number, alternate, title, user date, current effective date, status, findings.
+4. **HHSAR clauses**: table with number, title, user date, current date, HHSAR status, class deviation citation, IBR, UCF, applicability code, status, findings.
+5. **Missing required HHSAR clauses** for this action type.
+6. **Missing set-aside clauses** for the stated set-aside.
+7. **Out-of-scope and unparseable entries** (DFARS numbers, garbage lines).
 
-4. **Clauses Requiring Attention**
-   - Only show clauses with Status = "Action Needed" or "Review" — not every Updated clause
-   - This section is actionable, not noisy
+Checklist-mode sections: parameters, HHSAR required, HHSAR as-applicable (with prescriptions), HHSAR not-applicable to this action, FAR inventory by part.
 
-5. **Deviation Summary**
-   - HHS-specific deviations with dates and notes
+Keep findings verbatim from the JSON where practical; they are written to be report-ready.
 
-6. **Recommendations**
-   1. Date Mismatches — list the specific clauses and what dates need updating
-   2. Verify Deviation Source — list clauses where the user has a deviation but HHS doesn't
-   3. Missing Required Clauses — any required clauses not present
-   4. Incorporation by Reference — any IBR method mismatches
-   5. Hybrid/Commercial Considerations — as applicable
+## Important notes
 
-## Important Notes
-
-- Always filter to FAR only (ignore DFARS, VAAR, DEAR rows in the Matrix)
-- The Matrix contains alternate versions of clauses (column 39/40) — treat these as separate entries
-- When a clause shows `[Reserved]` in the RFO Title, it has been removed
-- The `COMM` column (index 8) indicates commercial applicability — `IAP` means "if acquisition is for commercial products/services"
-- Small business related clauses are primarily in FAR Part 19 (52.219-xx); see "Set-Aside Filtering" above for which ones are filtered by `--small-biz`
-- The ≤$350K column (index 30) applies to simplified acquisitions under that threshold
+- The Smart Matrix carries no applicability grid. Never claim a FAR clause "applies" to a contract type or purpose based on the matrix; applicability comes from the prescription at the cited FAR reference. The report should say "prescribed in X" and leave FAR applicability judgments to the prescription text.
+- HHSAR applicability codes ARE authoritative for HHSAR clauses and the checker evaluates them.
+- Clause families never cross files: 52.x is FAR (Smart Matrix), 352.x is HHSAR. DFARS 252.x is out of scope; say so rather than guessing.
+- Dates in both files are messy (mixed casing, full month names, non-breaking spaces, annotations like "(RFO DEVIATION)" and "Court Order"). The script normalizes these; if parsing by hand, see the data dictionary.
+- The JUL 2026 HHSAR file contains one typo'd number (352.215.70 with a period). The script normalizes it to 352.215-70 on load and on user input.
+- If the user's clause list includes titles, that is fine; the parser ignores everything except the number, the Alternate, the date, and the word "deviation".

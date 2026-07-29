@@ -11,9 +11,9 @@
     {
       "name": "far-clause-checker",
       "source": "./plugins/far-clause-checker",
-      "description": "Validates FAR provisions and clauses against the Revolutionary FAR Overhaul (RFO) and HHS Agency Deviation Matrix. Bundles the 22 April 2026 DAU Provision & Clause Matrix and produces a standalone .docx compliance report. FAR only; no DFARS.",
-      "version": "2.1.0",
-      "tags": ["far", "rfo", "compliance", "federal-acquisition", "clauses", "hhs"],
+      "description": "Validates a user's clause list against the acquisition.gov Smart Matrix (FAR 52.2xx) and the JUL 2026 HHSAR Deviations matrix (HHSAR 352.2xx) during the Revolutionary FAR Overhaul (RFO), and produces a standalone .docx compliance report. FAR and HHSAR only; no DFARS.",
+      "version": "3.0.0",
+      "tags": ["far", "hhsar", "rfo", "compliance", "federal-acquisition", "clauses"],
       "homepage": "https://acqagent.ai/skills/far-clause-checker"
     }
   ]
