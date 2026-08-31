@@ -9,9 +9,11 @@ In Claude Code:
 ```
 /plugin marketplace add acqagent/skills
 /plugin install far-clause-checker@acqagent
+/plugin install acquisition-policy-workflow@acqagent
+/plugin install market-research-workflow@acqagent
 ```
 
-That's it. The skill is installed into `~/.claude/plugins/` and auto-triggers when you ask Claude about FAR clauses, RFO compliance, set-aside applicability, or HHS deviations.
+Each skill is installed into `~/.claude/plugins/` and auto-triggers for its supported workflow.
 
 To update later:
 
@@ -24,9 +26,9 @@ To update later:
 
 | Plugin | Version | What it does |
 |--------|---------|--------------|
-| [`far-clause-checker`](./plugins/far-clause-checker) | 2.1.0 | Validates FAR provisions and clauses against the Revolutionary FAR Overhaul (RFO) and HHS Agency Deviation Matrix. Produces a standalone `.docx` compliance report. FAR only; no DFARS. |
-
-More skills are in development. See [acqagent.ai/skills](https://acqagent.ai/skills) for the full catalog.
+| [`far-clause-checker`](./plugins/far-clause-checker) | 3.0.0 | Validates FAR provisions and clauses against the Revolutionary FAR Overhaul (RFO) and HHS Agency Deviation Matrix. Produces a standalone `.docx` compliance report. FAR only; no DFARS. |
+| [`acquisition-policy-workflow`](./plugins/acquisition-policy-workflow) | 1.0.12 | Researches current federal acquisition policy across eCFR, Federal Register, Regulations.gov, and Acquisition.gov with explicit evidence and decision boundaries. |
+| [`market-research-workflow`](./plugins/market-research-workflow) | 1.0.12 | Runs staged FAR Part 10 market research using SAM.gov and supporting public sources, with readiness checks and approval gates. |
 
 ## Repo layout
 
@@ -35,7 +37,7 @@ More skills are in development. See [acqagent.ai/skills](https://acqagent.ai/ski
 ├── .claude-plugin/
 │   └── marketplace.json              # marketplace manifest
 ├── plugins/
-│   └── far-clause-checker/
+│   ├── far-clause-checker/
 │       ├── .claude-plugin/
 │       │   └── plugin.json           # plugin manifest
 │       ├── SKILL.md                  # skill prompt + workflow
@@ -46,6 +48,14 @@ More skills are in development. See [acqagent.ai/skills](https://acqagent.ai/ski
 │           ├── DATA_DICTIONARY.md
 │           ├── Revolutionary_FAR_Overhaul_HHS_Matrix.csv
 │           └── WarU_Provision___Clause_Matrix__22_Apr_2026.xlsx
+│   ├── acquisition-policy-workflow/
+│   │   ├── SKILL.md
+│   │   ├── references/
+│   │   └── scripts/
+│   └── market-research-workflow/
+│       ├── SKILL.md
+│       ├── references/
+│       └── scripts/
 └── README.md
 ```
 

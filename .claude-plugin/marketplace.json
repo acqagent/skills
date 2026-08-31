@@ -15,6 +15,22 @@
       "version": "3.0.0",
       "tags": ["far", "hhsar", "rfo", "compliance", "federal-acquisition", "clauses"],
       "homepage": "https://acqagent.ai/skills/far-clause-checker"
+    },
+    {
+      "name": "acquisition-policy-workflow",
+      "source": "./plugins/acquisition-policy-workflow",
+      "description": "Source-grounded federal acquisition policy research across eCFR, Federal Register, Regulations.gov, and Acquisition.gov.",
+      "version": "1.0.12",
+      "tags": ["federal-acquisition", "acquisition-policy", "far", "rulemaking", "class-deviation"],
+      "homepage": "https://acqagent.ai/skills/acquisition-policy-workflow"
+    },
+    {
+      "name": "market-research-workflow",
+      "source": "./plugins/market-research-workflow",
+      "description": "Staged FAR Part 10 market research with clear evidence, readiness, and decision boundaries.",
+      "version": "1.0.12",
+      "tags": ["federal-acquisition", "market-research", "far-part-10", "acquisition"],
+      "homepage": "https://acqagent.ai/skills/market-research-workflow"
     }
   ]
 }
