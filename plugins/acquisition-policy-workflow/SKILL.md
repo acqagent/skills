@@ -52,6 +52,7 @@ Read supporting files only when their stage is reached:
 - [source-routing.md](references/source-routing.md) before planning or retrieving evidence.
 - [status-and-decision-boundaries.md](references/status-and-decision-boundaries.md) before classifying policy status or presenting findings.
 - [evidence-contract.md](references/evidence-contract.md) whenever creating or updating the policy-research record.
+- [professional-product-standard.md](references/professional-product-standard.md) before drafting any reader-facing response or file.
 - [report-specification.md](references/report-specification.md) before generating a brief.
 - [runtime-adaptation.md](references/runtime-adaptation.md) when capabilities, files, or document tooling differ by host.
 
@@ -68,7 +69,7 @@ Read supporting files only when their stage is reached:
 9. **Comment boundary:** Public comments are stakeholder evidence, not authority or a representative survey. Preserve the query, sample method, coverage, exclusions, and limitations.
 10. **Documented status only:** State what cited published sources indicate as of a date. Reserve procurement-specific applicability, legal advice, policy approval, and official determinations to authorized officials.
 11. **Evidence integrity:** Every consequential finding cites stable evidence IDs. Keep source fact, user-supplied fact, inference, and documented-status finding distinct. Put complete evidence registers in an appendix or source note, not in the reader's opening view.
-12. **Artifact gate:** Generate a `.docx` only after the record and findings are approved. Use the selected route's named product and reader-first structure; do not force every route into an Impact Brief. Every written product leads with the planning posture, immediate acquisition implications, named owners and decision gates, and the relevant planning scenarios. Use the selected product name in the running header and footer. Render missing source material in plain language such as `No approved sample supplied` or `Not provided in the approved record`; do not expose raw field names or internal placeholder wording. Keep the reserved-determination boundary visible but proportionate to the practical answer. The document must pass record validation, structural validation, link and text extraction, LibreOffice conversion, and visual review of every page. Validation is only the technical floor: revise the product if the rendered first page does not answer what the intended reader should do next.
+12. **Artifact gate:** Generate a `.docx` only after the record and findings are approved. Use the selected route's named product and reader-first structure; do not force every route into an Impact Brief. Every written product leads with the planning posture, immediate acquisition implications, named owners and decision gates, and the relevant planning scenarios. Keep the reserved-determination boundary visible but proportionate to the practical answer. The document must pass record validation, structural validation, link and text extraction, LibreOffice conversion, and visual review of every page. Validation is only the technical floor: revise the product if the rendered first page does not answer what the intended reader should do next.
 13. **Unresolved policy conflicts:** When cited sources disagree about a material threshold, status, scope, date, or applicability term, record a structured conflict and report `documented_conflict`. Do not decide that one value controls, governs, or is operative. Only a resolution supplied by an authorized official may close the conflict.
 
 ## Stage 1: select or route the mode
@@ -111,6 +112,7 @@ If the user selects Help me choose, follow the diagnosis-and-recommendation cont
 Reuse the retained [launch-menu-and-framing.md](references/launch-menu-and-framing.md) content without reading or loading it again. If the mode was selected from the menu and its preview has not yet been shown, begin with its four-line outcome preview. Then establish only the fields needed by the selected mode:
 
 - Question and intended use.
+- Customer organization and decision date. Carry both from intake into the record's scope block and into every written product's scope header verbatim; never rescope a product to a different or invented organization, and never drop the decision date.
 - As-of date.
 - FAR, DFARS, or agency-supplement citation or part.
 - Agency, when agency status matters.
@@ -203,13 +205,16 @@ For chat, provide the approved findings, citations, reproducible source summary,
 
 For a formal brief:
 
-1. Read [report-specification.md](references/report-specification.md).
-2. Save the record as JSON and run `scripts/validate_policy_research_record.py`.
-3. Run `scripts/build_acquisition_policy_brief.py <record.json> <output.docx>`.
-4. Run `scripts/validate_acquisition_policy_brief.py <output.docx> --record <record.json>`.
-5. Open/save or convert through LibreOffice.
-6. Extract text and inspect live hyperlinks.
-7. Render and inspect every page as the intended government, industry, or neutral reader. Correct clipping, overflow, broken tables, blank pages, citation defects, weak first-page decision utility, process-heavy framing, generic owner assignments, or scenarios that do not materially change the treatment; then repeat validation and rendering.
+1. Read [professional-product-standard.md](references/professional-product-standard.md) and [report-specification.md](references/report-specification.md). Choose the lightest route-native form that delivers the requested outcome. The specification is a control set, not a mandatory generic outline.
+2. Apply the route-content minimums in the specification. Do not generate a Regulatory Change Briefing without matched text, a Watchlist without live matters and timing, a Public Comment Position Analysis without an approved comment sample and coded themes, or a Refresh without a dated prior/current comparison. A Refresh must also identify the prior analysis by title and date in the scope header. Return a short evidence-acquisition note in chat when the product has not been earned by the evidence.
+3. Every product's scope header states the customer organization and decision date from intake verbatim. The route-specific analysis must be the majority of the document body; shared framing is limited to the scope header, evidence register, and limitations, and no table's rows are repeated in a second section.
+4. When the record is illustrative rather than live-sourced, use the standard reader-facing label "Illustrative example (not live data)" in the limitations or evidence-status block only. Never place test-harness vocabulary such as "test record", "test fixture", "synthetic", or "fixture" in reader-visible content or payload tables.
+5. Save the record as JSON and run `scripts/validate_policy_research_record.py`.
+6. Run `scripts/build_acquisition_policy_brief.py <record.json> <output.docx>`.
+7. Run `scripts/validate_acquisition_policy_brief.py <output.docx> --record <record.json>`.
+8. Open/save or convert through LibreOffice.
+9. Extract text and inspect live hyperlinks.
+10. Render and inspect every page as the intended government, industry, or neutral reader. Correct clipping, overflow, broken tables, blank pages, citation defects, weak first-page decision utility, process-heavy framing, generic owner assignments, or scenarios that do not materially change the treatment; then repeat validation and rendering.
 
 Deliver only the final `.docx` unless the user asks for the research record or QA outputs.
 

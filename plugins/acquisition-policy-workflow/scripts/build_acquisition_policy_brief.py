@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -48,6 +49,43 @@ PRODUCT_TITLES = {
     "comments": "Public Comment Position Analysis",
     "refresh": "Policy Analysis Refresh",
     "impact_brief": "Acquisition Policy Impact Brief",
+}
+
+POLICY_ITEM_STATUSES = {
+    "codified_current",
+    "model_deviation",
+    "agency_class_deviation",
+    "proposed_rule",
+    "final_rule_pending_effective",
+    "final_rule_effective",
+    "withdrawn",
+    "superseded",
+    "nonregulatory_guidance",
+}
+
+# Reader-facing documented-status vocabulary. The Agency Policy Status Matrix
+# and Three-Layer Comparison status cells must use only these values; see
+# references/report-specification.md.
+STATUS_QUESTION_LABELS = {
+    "codified_current": "Government-wide baseline",
+    "final_rule_effective": "Government-wide baseline",
+    "model_deviation": "Published model text; not agency-operative",
+    "proposed_rule": "Pending rulemaking; not current policy",
+    "final_rule_pending_effective": "Final rule pending effective date; not current policy",
+    "withdrawn": "Withdrawn; not current policy",
+    "superseded": "Superseded; not current policy",
+    "nonregulatory_guidance": "Guidance; not regulation",
+}
+
+FOCUSED_PRODUCTS = {
+    "current_rule",
+    "agency_status",
+    "three_layer",
+    "change_brief",
+    "rulemaking",
+    "watchlist",
+    "comments",
+    "refresh",
 }
 
 
@@ -233,10 +271,10 @@ def configure_styles(document: Document) -> None:
     title.paragraph_format.right_indent = Inches(0)
     title.paragraph_format.first_line_indent = Inches(0)
 
-    if "Evidence ID" not in document.styles:
-        evidence_style = document.styles.add_style("Evidence ID", WD_STYLE_TYPE.CHARACTER)
+    if "Source Citation" not in document.styles:
+        evidence_style = document.styles.add_style("Source Citation", WD_STYLE_TYPE.CHARACTER)
     else:
-        evidence_style = document.styles["Evidence ID"]
+        evidence_style = document.styles["Source Citation"]
     evidence_style.font.name = "Calibri"
     evidence_style.font.size = Pt(9)
     evidence_style.font.bold = True
@@ -255,33 +293,12 @@ def configure_styles(document: Document) -> None:
     footer._p.append(field)
 
 
-def set_document_identity(document: Document, product_title: str) -> None:
-    """Use the selected route product in headers and footers."""
-    section = document.sections[0]
-    header = section.header.paragraphs[0]
-    header.text = f"1102tools  |  {product_title}"
-    header.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    if header.runs:
-        set_run_font(header.runs[0], size=8, color=MID_GRAY)
-    footer = section.footer.paragraphs[0]
-    footer.text = ""
-    footer.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    prefix = footer.add_run(f"{product_title}  |  Prepared as of the date shown  |  Page ")
-    set_run_font(prefix, size=8, color=MID_GRAY)
-    field = OxmlElement("w:fldSimple")
-    field.set(qn("w:instr"), "PAGE")
-    footer._p.append(field)
-
-
 def add_metadata(document: Document, label: str, value: object) -> None:
     paragraph = document.add_paragraph()
     paragraph.paragraph_format.space_after = Pt(2)
     label_run = paragraph.add_run(f"{label}: ")
     set_run_font(label_run, bold=True)
-    display = str(value if value not in (None, "") else "Not provided")
-    display = display.replace("(fictional test data)", "(illustrative qualification scenario)")
-    display = display.replace("(fictional)", "(illustrative scenario)")
-    value_run = paragraph.add_run(display)
+    value_run = paragraph.add_run(reader_text(value if value not in (None, "") else "Not provided"))
     set_run_font(value_run)
 
 
@@ -292,7 +309,7 @@ def set_cell_text(
     paragraph = cell.paragraphs[0]
     paragraph.paragraph_format.space_after = Pt(0)
     paragraph.paragraph_format.line_spacing = 1.05
-    run = paragraph.add_run(str(value if value not in (None, "") else "Not stated"))
+    run = paragraph.add_run(reader_text(value if value not in (None, "") else "Not stated"))
     set_run_font(run, size=font_size, color=color, bold=bold)
 
 
@@ -335,16 +352,93 @@ def add_bullets(document: Document, items: list[object], empty_text: str) -> Non
         else:
             text = str(item)
             evidence_ids = []
-        paragraph = document.add_paragraph(str(text), style="List Bullet")
+        paragraph = document.add_paragraph(reader_text(text), style="List Bullet")
         cite_ids(paragraph, evidence_ids)
 
 
+def reader_text(value: object) -> str:
+    """Remove internal evidence markers that may be embedded in approved prose."""
+    text = str(value)
+    return re.sub(r"\s*\[(?:E\d{3,}(?:\s*,\s*)?)+\]", "", text).strip()
+
+
+_ACTIVE_SOURCE_MAP: dict[str, str] = {}
+
+
+def policy_source_map(record: dict) -> dict[str, str]:
+    """Map internal evidence IDs to reader-facing sources ordered by first use."""
+    ordered: list[str] = []
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == "evidence_ids" and isinstance(item, list):
+                    ordered.extend(str(candidate) for candidate in item)
+                else:
+                    visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    visit(record.get("validation", {}))
+    visit(record.get("findings", []))
+    visit(record.get("policy_items", []))
+    visit(record.get("timeline", []))
+    ordered.extend(str(item.get("id", "")) for item in record.get("evidence", []) if isinstance(item, dict))
+    by_id = {
+        str(item.get("id")): item
+        for item in record.get("evidence", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    mapping: dict[str, str] = {}
+    key_to_source: dict[tuple[str, str, str], str] = {}
+    for evidence_id in ordered:
+        if evidence_id in mapping or evidence_id not in by_id:
+            continue
+        item = by_id[evidence_id]
+        key = (
+            str(item.get("source_type", "")),
+            str(item.get("canonical_url") or item.get("locator") or "").strip(),
+            str(item.get("title", "")).strip(),
+        )
+        source_id = key_to_source.get(key)
+        if source_id is None:
+            source_id = f"S{len(key_to_source) + 1}"
+            key_to_source[key] = source_id
+        mapping[evidence_id] = source_id
+    return mapping
+
+
+def source_ids(ids: list[str]) -> list[str]:
+    return list(dict.fromkeys(_ACTIVE_SOURCE_MAP[value] for value in ids if value in _ACTIVE_SOURCE_MAP))
+
+
+def source_suffix(ids: list[str]) -> str:
+    markers = source_ids(ids)
+    return " [" + ", ".join(markers) + "]" if markers else ""
+
+
+def source_register_entries(record: dict, include_ids: set[str] | None = None) -> list[dict]:
+    entries: dict[str, dict] = {}
+    for item in record.get("evidence", []):
+        if not isinstance(item, dict) or item.get("id") not in _ACTIVE_SOURCE_MAP:
+            continue
+        if include_ids is not None and item.get("id") not in include_ids:
+            continue
+        source_id = _ACTIVE_SOURCE_MAP[str(item["id"])]
+        entry = entries.setdefault(source_id, {**item, "source_id": source_id, "facts": []})
+        fact = str(item.get("fact", "")).strip()
+        if fact and fact not in entry["facts"]:
+            entry["facts"].append(fact)
+    return [entries[key] for key in sorted(entries, key=lambda value: int(value[1:]))]
+
+
 def cite_ids(paragraph, ids: list[str]) -> None:
-    if not ids:
+    markers = source_ids(ids)
+    if not markers:
         return
-    paragraph.add_run(" [")
-    paragraph.add_run(", ".join(ids), style="Evidence ID")
-    paragraph.add_run("]")
+    paragraph.add_run(" ")
+    paragraph.add_run("[" + ", ".join(markers) + "]", style="Source Citation")
 
 
 def display_value(value: object) -> str:
@@ -385,7 +479,7 @@ def policy_rows(record: dict) -> list[list[object]]:
             item.get("citation", ""),
             item.get("agency", "") or "Government-wide or not stated",
             item.get("applicability_summary", ""),
-            ", ".join(item.get("evidence_ids", [])),
+            ", ".join(source_ids(item.get("evidence_ids", []))),
         ]
         for item in record.get("policy_items", [])
     ]
@@ -436,40 +530,79 @@ def derive_planning_posture(record: dict) -> dict:
             "accent": supplied.get("accent") or GOLD,
         }
 
+    agency = record.get("scope", {}).get("agency") or "the agency in scope"
+    matched_deviation = next(
+        (
+            item
+            for item in record.get("policy_items", [])
+            if item.get("status") == "agency_class_deviation"
+            and agency_item_matches_scope(record, item)
+        ),
+        None,
+    )
+    current_rule_rationale = (
+        f"The codified rule remains the government-wide baseline. This record also identifies a {agency} "
+        "deviation, which applies only within its documented scope, effective date, and transition terms."
+        if matched_deviation
+        else (
+            "The model text and proposed rule do not replace the codified rule, and this record does not "
+            f"establish a {agency} deviation. Confirm agency adoption before departing from the codified baseline."
+        )
+    )
+    agency_status_headline = (
+        f"{agency} adoption is documented; confirm scope and transition timing"
+        if matched_deviation
+        else f"No {agency} adoption is established"
+    )
+    agency_status_rationale = (
+        "The named-agency deviation is adoption evidence for this status question. The contracting team must "
+        "still map the contemplated procurement to its covered scope, effective date, and transition terms."
+        if matched_deviation
+        else (
+            "The approved record includes comparator evidence, not a deviation issued for the agency in scope. "
+            "The policy office should locate and authenticate any agency-specific issuance before the contracting "
+            "team treats the model text as operative."
+        )
+    )
+    recorded_deviation = item_with_status(record, "agency_class_deviation")
+    deviation_issuer = recorded_deviation.get("agency") or "issuing-agency"
+    three_layer_rationale = (
+        "The codified FAR is the government-wide baseline; the FAR Council text is a non-operative model; and "
+        f"the documented {agency} deviation is the agency-operative layer only within its recorded scope and timing."
+        if matched_deviation
+        else (
+            "The codified FAR is current; the FAR Council text is a non-operative model; and the documented "
+            f"{deviation_issuer} deviation applies only within its own scope. No approved evidence shows adoption by {agency}."
+        )
+    )
+    baseline_ids = evidence_ids_for_statuses(record, {"codified_current", "final_rule_effective"})
+    adoption_ids = evidence_ids_for_statuses(record, {"model_deviation", "agency_class_deviation"})
+    rulemaking_ids = evidence_ids_for_statuses(
+        record, {"proposed_rule", "final_rule_pending_effective", "final_rule_effective"}
+    )
+    all_ids = evidence_ids_for_statuses(record, POLICY_ITEM_STATUSES)
     route_postures = {
         "current_rule": {
             "label": "Current rule",
             "headline": "Use the codified FAR Part 10 text as the current baseline",
-            "rationale": (
-                "The model text and proposed rule do not replace the codified rule, and this record does not "
-                "establish a Department of Civic Resilience deviation. Confirm agency adoption before departing "
-                "from the codified baseline."
-            ),
-            "evidence_ids": ["E001", "E002", "E003", "E004"],
+            "rationale": current_rule_rationale,
+            "evidence_ids": baseline_ids + [i for i in adoption_ids if i not in baseline_ids],
             "fill": PALE_BLUE,
             "accent": BLUE,
         },
         "agency_status": {
             "label": "Agency status",
-            "headline": "No Department of Civic Resilience adoption is established",
-            "rationale": (
-                "The approved record includes a GSA deviation, not a deviation issued for the agency in scope. "
-                "The policy office should locate and authenticate any agency-specific issuance before the "
-                "contracting team treats the model text as operative."
-            ),
-            "evidence_ids": ["E002", "E003"],
+            "headline": agency_status_headline,
+            "rationale": agency_status_rationale,
+            "evidence_ids": adoption_ids,
             "fill": PALE_GOLD,
             "accent": GOLD,
         },
         "three_layer": {
             "label": "Comparison answer",
             "headline": "The three layers do not produce one common operative rule",
-            "rationale": (
-                "The codified FAR is current; the FAR Council text is a non-operative model; and the documented "
-                "GSA deviation applies only within its own scope. No approved evidence shows adoption by the "
-                "Department of Civic Resilience."
-            ),
-            "evidence_ids": ["E001", "E002", "E003"],
+            "rationale": three_layer_rationale,
+            "evidence_ids": baseline_ids + [i for i in adoption_ids if i not in baseline_ids],
             "fill": PALE_TEAL,
             "accent": TEAL,
         },
@@ -481,7 +614,7 @@ def derive_planning_posture(record: dict) -> dict:
                 "no matched section-level text. Obtain the old and new provisions before describing changed duties, "
                 "thresholds, or procedures."
             ),
-            "evidence_ids": ["E001", "E002", "E004"],
+            "evidence_ids": baseline_ids + [i for i in adoption_ids + rulemaking_ids if i not in baseline_ids],
             "fill": PALE_GOLD,
             "accent": GOLD,
         },
@@ -489,10 +622,10 @@ def derive_planning_posture(record: dict) -> dict:
             "label": "Rulemaking status",
             "headline": "The record reaches a proposed rule, not a final effective rule",
             "rationale": (
-                "The documented sequence moves from model text to a GSA deviation and then a related proposed rule. "
+                "The documented sequence of model text, any recorded deviation, and related rulemaking reaches a proposed rule. "
                 "No final-rule or effective-date event is approved here; monitor the docket for the next formal trigger."
             ),
-            "evidence_ids": ["E002", "E003", "E004", "E005"],
+            "evidence_ids": adoption_ids + [i for i in rulemaking_ids if i not in adoption_ids],
             "fill": PALE_BLUE,
             "accent": BLUE,
         },
@@ -503,7 +636,7 @@ def derive_planning_posture(record: dict) -> dict:
                 "The record identifies a proposed-rule docket but does not supply a verified open period or closing "
                 "date. Check the live docket and Federal Register notice before assigning a response deadline."
             ),
-            "evidence_ids": ["E004", "E005"],
+            "evidence_ids": rulemaking_ids,
             "fill": PALE_GOLD,
             "accent": GOLD,
         },
@@ -515,7 +648,7 @@ def derive_planning_posture(record: dict) -> dict:
                 "cannot be responsibly characterized. Define the sampling frame, retrieve the comments, and code "
                 "the sample before drawing conclusions."
             ),
-            "evidence_ids": ["E004", "E005"],
+            "evidence_ids": rulemaking_ids,
             "fill": PALE_RED,
             "accent": RED,
         },
@@ -527,7 +660,7 @@ def derive_planning_posture(record: dict) -> dict:
                 "Preserve the prior source register, retrieve current versions, and compare status, text, scope, and "
                 "dates before reporting a change."
             ),
-            "evidence_ids": ["E001", "E002", "E003", "E004", "E005"],
+            "evidence_ids": all_ids,
             "fill": PALE_GOLD,
             "accent": GOLD,
         },
@@ -606,16 +739,34 @@ def derive_planning_posture(record: dict) -> dict:
 
 
 def derive_front_page_interpretation(record: dict) -> str:
+    approved = str(record.get("validation", {}).get("reader_bottom_line", "")).strip()
+    if approved:
+        return approved
+    agency = record.get("scope", {}).get("agency") or "the agency in scope"
+    matched_deviation = any(
+        item.get("status") == "agency_class_deviation" and agency_item_matches_scope(record, item)
+        for item in record.get("policy_items", [])
+    )
     interpretations = {
         "current_rule": (
-            "Bottom line: the codified FAR Part 10 text is the only government-wide current rule established by "
-            "this record. The model text and proposed rule are planning signals, while the GSA deviation does not "
-            "prove adoption by the agency in scope."
+            "Bottom line: codified FAR Part 10 is the government-wide baseline, and the approved record also "
+            f"documents a {agency} deviation for use only within its stated scope and timing. The model text and "
+            "proposed rule remain separate planning layers."
+            if matched_deviation
+            else (
+                "Bottom line: the codified FAR Part 10 text is the only government-wide current rule established "
+                "by this record. The model text and proposed rule are planning signals, while the comparator "
+                "deviation does not prove adoption by the agency in scope."
+            )
         ),
         "agency_status": (
-            "Bottom line: agency adoption remains unverified. The documented GSA deviation demonstrates how "
-            "adoption can occur, but it cannot be used as evidence that the Department of Civic Resilience adopted "
-            "the same text."
+            f"Bottom line: {agency} adoption is documented in the approved record. Confirm that the contemplated "
+            "procurement falls within the deviation's scope, effective date, and transition terms before use."
+            if matched_deviation
+            else (
+                "Bottom line: agency adoption remains unverified. The documented comparator demonstrates how "
+                f"adoption can occur, but it cannot be used as evidence that {agency} adopted the same text."
+            )
         ),
         "three_layer": (
             "Bottom line: the layers have different legal and operational roles. Use the codified rule as the "
@@ -651,6 +802,62 @@ def derive_front_page_interpretation(record: dict) -> str:
     )
 
 
+def collect_evidence_ids(value: object) -> set[str]:
+    ids: set[str] = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "evidence_ids" and isinstance(item, list):
+                ids.update(str(candidate) for candidate in item)
+            else:
+                ids.update(collect_evidence_ids(item))
+    elif isinstance(value, list):
+        for item in value:
+            ids.update(collect_evidence_ids(item))
+    return ids
+
+
+def focused_evidence_ids(record: dict) -> set[str]:
+    """Return evidence cited by the selected focused product, excluding unused fixture fields."""
+    mode = record.get("workflow_mode", "")
+    validation = record.get("validation", {})
+    route_fields = {
+        "change_brief": ("focused_findings", "focused_impacts", "planning_posture", "decision_gates", "change_map", "implementation_actions"),
+        "watchlist": ("focused_findings", "focused_impacts", "planning_posture", "decision_gates", "rulemaking_watchlist", "watch_priorities"),
+        "comments": ("focused_findings", "focused_impacts", "planning_posture", "decision_gates", "comment_themes"),
+        "refresh": ("focused_findings", "focused_impacts", "planning_posture", "decision_gates", "refresh_changes", "carry_forward_decisions"),
+    }
+    if mode == "current_rule":
+        return collect_evidence_ids(
+            {
+                "policy_items": [
+                    item
+                    for item in record.get("policy_items", [])
+                    if item.get("status")
+                    in {"codified_current", "model_deviation", "agency_class_deviation"}
+                ],
+                "planning_posture": derive_planning_posture(record),
+                "decision_gates": derive_decision_gates(record),
+            }
+        )
+    if mode in {"agency_status", "three_layer"}:
+        return collect_evidence_ids(
+            {
+                "policy_items": record.get("policy_items", []),
+                "planning_posture": derive_planning_posture(record),
+                "decision_gates": derive_decision_gates(record),
+            }
+        )
+    if mode == "rulemaking":
+        return collect_evidence_ids(
+            {
+                "timeline": record.get("timeline", []),
+                "planning_posture": derive_planning_posture(record),
+                "decision_gates": derive_decision_gates(record),
+            }
+        )
+    return collect_evidence_ids({field: validation.get(field) for field in route_fields.get(mode, ())})
+
+
 def route_owner_labels(mode: str) -> tuple[str, str, str]:
     if mode in {"rulemaking", "watchlist", "comments", "refresh"}:
         return "Policy analyst", "Policy office", "Contracting team"
@@ -663,41 +870,7 @@ def derive_decision_gates(record: dict) -> list[dict]:
     supplied = record.get("validation", {}).get("decision_gates")
     if isinstance(supplied, list) and supplied:
         return [item for item in supplied if isinstance(item, dict)]
-    first_owner, second_owner, third_owner = route_owner_labels(record.get("workflow_mode", ""))
-    unresolved = bool(record.get("unresolved_questions") or record.get("conflicts"))
-    first_evidence = evidence_ids_for_statuses(
-        record, {"agency_class_deviation", "model_deviation", "codified_current"}
-    )
-    rulemaking_evidence = evidence_ids_for_statuses(
-        record, {"proposed_rule", "final_rule_pending_effective", "final_rule_effective"}
-    )
-    return [
-        {
-            "gate": "A",
-            "evidence": "Confirm the current source layer, status, scope, and effective timing.",
-            "owner": first_owner,
-            "timing": "Before the analysis is used to draft or approve acquisition language",
-            "evidence_ids": first_evidence,
-        },
-        {
-            "gate": "B",
-            "evidence": (
-                "Resolve the recorded conflict or open applicability question."
-                if unresolved
-                else "Map the documented policy to the actual solicitation, award, option, or modification date."
-            ),
-            "owner": second_owner,
-            "timing": "Before release or the next material procurement decision",
-            "evidence_ids": first_evidence,
-        },
-        {
-            "gate": "C",
-            "evidence": "Refresh agency and rulemaking status when a material source or date changes.",
-            "owner": third_owner,
-            "timing": "At the stated refresh trigger and before relying on prior conclusions",
-            "evidence_ids": rulemaking_evidence or first_evidence,
-        },
-    ]
+    return []
 
 
 def derive_scenarios(record: dict) -> list[dict]:
@@ -710,14 +883,16 @@ def derive_scenarios(record: dict) -> list[dict]:
     rulemaking_ids = evidence_ids_for_statuses(
         record, {"proposed_rule", "final_rule_pending_effective", "final_rule_effective"}
     )
-    scenarios = [
-        {
-            "scenario": "Baseline holds",
-            "trigger": "No new agency adoption or effective rule changes the documented status.",
-            "treatment": "Continue from the documented current baseline and retain the cited source set.",
-            "evidence_ids": baseline_ids,
-        }
-    ]
+    scenarios: list[dict] = []
+    if statuses & {"model_deviation", "agency_class_deviation", "proposed_rule", "final_rule_pending_effective"}:
+        scenarios.append(
+            {
+                "scenario": "Baseline holds",
+                "trigger": "No new agency adoption or effective rule changes the documented status.",
+                "treatment": "Continue from the documented current baseline and retain the cited source set.",
+                "evidence_ids": baseline_ids,
+            }
+        )
     if statuses & {"model_deviation", "agency_class_deviation"}:
         scenarios.append(
             {
@@ -781,8 +956,67 @@ def item_with_status(record: dict, status: str) -> dict:
 
 
 def evidence_suffix(item: dict) -> str:
-    ids = item.get("evidence_ids", [])
-    return " [" + ", ".join(ids) + "]" if ids else ""
+    return source_suffix(item.get("evidence_ids", []))
+
+
+def validation_rows(record: dict, field: str) -> list[dict]:
+    value = record.get("validation", {}).get(field, [])
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def require_validation_rows(record: dict, field: str, purpose: str) -> list[dict]:
+    rows = validation_rows(record, field)
+    if not rows:
+        raise ValueError(
+            f"{record.get('workflow_mode')} cannot produce a paid-value DOCX without {purpose}; "
+            "return a concise evidence-acquisition note instead"
+        )
+    return rows
+
+
+def value_with_evidence(item: dict, field: str) -> str:
+    text = str(item.get(field, ""))
+    return text + source_suffix(item.get("evidence_ids", []))
+
+
+def enforce_route_content(record: dict) -> None:
+    mode = record.get("workflow_mode")
+    statuses = {item.get("status") for item in record.get("policy_items", [])}
+    if mode == "current_rule":
+        if "codified_current" not in statuses:
+            raise ValueError(
+                "current_rule cannot produce a paid-value DOCX without an approved codified-current source; "
+                "return a concise evidence-acquisition note instead"
+            )
+    elif mode == "agency_status":
+        if not record.get("scope", {}).get("agency") or not record.get("policy_items"):
+            raise ValueError(
+                "agency_status cannot produce a paid-value DOCX without a named agency and approved policy layers; "
+                "return a concise evidence-acquisition note instead"
+            )
+    elif mode == "three_layer":
+        required = {"codified_current", "model_deviation", "agency_class_deviation"}
+        if not required.issubset(statuses):
+            raise ValueError(
+                "three_layer cannot produce a paid-value DOCX without codified, model, and agency-deviation layers; "
+                "return a concise evidence-acquisition note instead"
+            )
+    elif mode == "change_brief":
+        require_validation_rows(record, "change_map", "matched before-and-after provisions")
+    elif mode == "rulemaking":
+        if not record.get("timeline"):
+            raise ValueError(
+                "rulemaking cannot produce a paid-value DOCX without a dated milestone sequence; "
+                "return a concise evidence-acquisition note instead"
+            )
+    elif mode == "watchlist":
+        require_validation_rows(record, "rulemaking_watchlist", "live rulemaking matters, timing, and owner actions")
+    elif mode == "comments":
+        require_validation_rows(record, "comment_themes", "an approved comment sample and coded themes")
+        if not record.get("stakeholder_positions"):
+            raise ValueError("comments cannot produce a paid-value DOCX without stakeholder-position coverage")
+    elif mode == "refresh":
+        require_validation_rows(record, "refresh_changes", "a dated prior/current comparison")
 
 
 def add_route_native_analysis(document: Document, record: dict) -> None:
@@ -795,73 +1029,118 @@ def add_route_native_analysis(document: Document, record: dict) -> None:
 
     if mode == "current_rule":
         document.add_heading("Current Rule Card", level=1)
+        agency_check = (
+            "Named-agency deviation is documented; apply only after confirming the procurement falls within its "
+            "scope, effective date, and transition terms."
+            if agency_item_matches_scope(record, deviation)
+            else (
+                "No agency-issued deviation for the named agency is established by this approved record; the "
+                "recorded deviation is comparator evidence only."
+            )
+        )
         rows = [
             ["Documented baseline", codified.get("citation", "Not recorded"), codified.get("applicability_summary", "Not recorded") + evidence_suffix(codified)],
             ["Published comparison layer", model.get("citation", "Not recorded"), "Model text is informative but not agency-operative by itself." + evidence_suffix(model)],
-            ["Agency check", agency, "No agency-issued deviation for the named agency is established by this approved record; the recorded GSA item is comparator evidence only." + evidence_suffix(deviation)],
+            ["Agency check", agency, agency_check + evidence_suffix(deviation)],
         ]
         add_table(document, ["Rule-card field", "Recorded value", "Planning meaning"], rows, [1800, 2500, 5060])
     elif mode == "agency_status":
         document.add_heading("Agency Adoption Status", level=1)
         rows = []
         for item in record.get("policy_items", []):
-            relevance = "Government-wide baseline" if not item.get("agency") else (
-                "Named-agency evidence" if agency_item_matches_scope(record, item) else "Comparator only; does not establish adoption for the named agency"
-            )
-            rows.append([item.get("status", "").replace("_", " ").title(), item.get("agency") or "Government-wide", relevance, ", ".join(item.get("evidence_ids", []))])
+            status = item.get("status", "")
+            if status == "agency_class_deviation":
+                relevance = (
+                    "Named-agency evidence"
+                    if agency_item_matches_scope(record, item)
+                    else "Comparator only; does not establish adoption for the named agency"
+                )
+            else:
+                relevance = STATUS_QUESTION_LABELS.get(status, "Documented status not classified")
+            rows.append([status.replace("_", " ").title(), item.get("agency") or "Government-wide", relevance, ", ".join(source_ids(item.get("evidence_ids", [])))])
         add_table(document, ["Layer", "Issuer/agency", "Status for this question", "Evidence"], rows, [1800, 1900, 4200, 1460])
     elif mode == "three_layer":
         document.add_heading("Three-Layer Comparison and Adoption Test", level=1)
+        deviation_test = (
+            "Named-agency adoption evidence; confirm procurement scope and timing before use"
+            if agency_item_matches_scope(record, deviation)
+            else (
+                "Comparator only unless the issuing agency matches the procurement agency and scope/timing are confirmed"
+            )
+        )
+        deviation_source = deviation.get("citation", "Not recorded")
+        if deviation.get("agency"):
+            deviation_source += f" ({deviation['agency']})"
         rows = [
-            ["Codified baseline", codified.get("citation", "Not recorded"), "Current baseline reflected in the approved record", "Use as the planning baseline" + evidence_suffix(codified)],
-            ["Model text", model.get("citation", "Not recorded"), "Published model; not operative alone", "Use only to identify possible deltas" + evidence_suffix(model)],
-            ["Agency deviation", deviation.get("citation", "Not recorded"), deviation.get("agency", "Not recorded"), "Comparator only unless the issuing agency matches the procurement agency and scope/timing are confirmed" + evidence_suffix(deviation)],
+            ["Codified baseline", codified.get("citation", "Not recorded"), "Codified current baseline", "Use as the planning baseline" + evidence_suffix(codified)],
+            ["Model text", model.get("citation", "Not recorded"), "Published model text; not operative alone", "Use only to identify possible deltas" + evidence_suffix(model)],
+            ["Agency deviation", deviation_source, "Agency class deviation", deviation_test + evidence_suffix(deviation)],
         ]
         add_table(document, ["Layer", "Source", "Documented status", "Adoption test"], rows, [1600, 2100, 2500, 3160])
     elif mode == "change_brief":
         document.add_heading("Before/After Change Map", level=1)
-        rows = [
-            ["Before/current baseline", codified.get("citation", "Not recorded"), codified.get("applicability_summary", "Not recorded") + evidence_suffix(codified)],
-            ["Published alternative", model.get("citation", "Not recorded"), "A separate model-text layer, not agency-operative by itself." + evidence_suffix(model)],
-            ["Verified textual delta", "Matched before/after provisions not provided in the approved record", "The approved record does not contain section-level before/after text. Do not infer a substantive change from titles or status labels."],
-            ["Implementation consequence", deviation.get("agency", "Not recorded"), "Only an agency-issued source with applicable scope and timing can operationalize model text for that agency." + evidence_suffix(deviation)],
-        ]
-        add_table(document, ["Change-map field", "Recorded source/value", "Reader conclusion"], rows, [1900, 2400, 5060])
+        rows = require_validation_rows(record, "change_map", "matched before-and-after provisions")
+        add_table(
+            document,
+            ["Provision", "Before", "After", "Substantive delta", "Operational consequence"],
+            [[item.get("provision", ""), item.get("before", ""), item.get("after", ""), value_with_evidence(item, "delta"), item.get("operational_consequence", "")] for item in rows],
+            [1250, 1900, 1900, 2100, 2210],
+            font_size=8.5,
+        )
+        document.add_heading("Implementation decisions", level=2)
+        add_bullets(document, record.get("validation", {}).get("implementation_actions", []), "No implementation action was approved.")
     elif mode == "rulemaking":
         document.add_heading("Rulemaking Milestones and Next Trigger", level=1)
-        rows = [[item.get("date", ""), item.get("status", ""), item.get("event", ""), ", ".join(item.get("evidence_ids", []))] for item in record.get("timeline", [])]
+        rows = [[item.get("date", ""), item.get("status", ""), item.get("event", ""), ", ".join(source_ids(item.get("evidence_ids", [])))] for item in record.get("timeline", [])]
         add_table(document, ["Date", "Status", "Milestone", "Evidence"], rows, [1300, 1700, 4900, 1460])
         document.add_paragraph("Next status-changing trigger: an effective final rule, correction, withdrawal, codification update, or applicable agency instruction. Until then, the proposed-rule layer remains non-operative.")
     elif mode == "watchlist":
         document.add_heading("Open Rulemaking Watchlist", level=1)
-        rows = [[proposed.get("citation", "Not recorded"), "Proposed rule", "No verified open comment deadline is recorded in the approved evidence record.", "Policy analyst", "Refresh Federal Register and docket status before acting" + evidence_suffix(proposed)]]
-        add_table(document, ["Matter", "Status", "Verified deadline", "Owner", "Next trigger"], rows, [1700, 1300, 2500, 1400, 2460])
+        rows = require_validation_rows(record, "rulemaking_watchlist", "live rulemaking matters, timing, and owner actions")
+        add_table(
+            document,
+            ["Matter / docket", "Stage", "Deadline", "Next event", "Owner", "Recommended action"],
+            [[item.get("matter", ""), item.get("stage", ""), value_with_evidence(item, "deadline"), item.get("next_event", ""), item.get("owner", ""), item.get("recommended_action", "")] for item in rows],
+            [1800, 1050, 1250, 1700, 1200, 2360],
+            font_size=8.5,
+        )
+        document.add_heading("Response priorities", level=2)
+        add_bullets(document, record.get("validation", {}).get("watch_priorities", []), "No response priority was approved.")
     elif mode == "comments":
         document.add_heading("Comment Sample and Theme Coverage", level=1)
         positions = record.get("stakeholder_positions", [])
-        if positions:
-            rows = [[item.get("submitter_type", ""), item.get("position", ""), f"{item.get('reviewed_count', 0)} of {item.get('returned_count', 0)}", item.get("sample_method", ""), item.get("limitations", "")] for item in positions]
-            add_table(document, ["Submitter", "Observed position", "Coverage", "Method", "Limits"], rows, [1300, 2600, 1100, 1900, 2460])
-        else:
-            rows = [
-                ["Approved sample", "No approved sample supplied", "No stakeholder theme or position conclusion is supportable."],
-                ["Needed evidence", "Defined query, returned count, reviewed count, sampling method, contrary positions, and limitations", "Acquire and approve a bounded sample before issuing a position analysis."],
-            ]
-            add_table(document, ["Coverage field", "Approved record", "Reader conclusion"], rows, [1700, 3600, 4060])
+        rows = [[item.get("submitter_type", ""), item.get("position", ""), f"{item.get('reviewed_count', 0)} of {item.get('returned_count', 0)}", item.get("sample_method", ""), item.get("limitations", "")] for item in positions]
+        add_table(document, ["Stakeholder segment", "Observed position", "Coverage", "Sample method", "Limits"], rows, [1500, 2500, 1050, 1900, 2410], font_size=7.5)
+        document.add_heading("Coded themes and acquisition implications", level=1)
+        themes = require_validation_rows(record, "comment_themes", "an approved comment sample and coded themes")
+        add_table(
+            document,
+            ["Theme", "Observed pattern", "Segments", "Contrary view", "Acquisition implication"],
+            [[item.get("theme", ""), value_with_evidence(item, "observed_pattern"), item.get("segments", ""), item.get("contrary_view", ""), item.get("acquisition_implication", "")] for item in themes],
+            [1400, 2100, 1450, 1800, 2610],
+            font_size=7.5,
+        )
     elif mode == "refresh":
         document.add_heading("Refresh Change Register", level=1)
-        rows = [
-            ["Carried forward", "Codified baseline, model-text distinction, and agency-adoption boundary", "Retain unless a cited source changes"],
-            ["Newly verified", "No discrete new source or status change is identified in the approved evidence record", "Do not imply a change merely because the analysis was rerun"],
-            ["Next refresh trigger", "Agency instruction, effective final rule, correction, withdrawal, codification update, or procurement timing change", "Refresh only when the trigger can change the documented status"],
-        ]
-        add_table(document, ["Change class", "Result", "Carry-forward treatment"], rows, [1800, 4300, 3260])
+        rows = require_validation_rows(record, "refresh_changes", "a dated prior/current comparison")
+        add_table(
+            document,
+            ["Policy issue", "Prior conclusion", "Current evidence", "Changed / unchanged", "Planning consequence"],
+            [[item.get("issue", ""), item.get("prior_conclusion", ""), value_with_evidence(item, "current_evidence"), item.get("delta", ""), item.get("planning_consequence", "")] for item in rows],
+            [1450, 2000, 2250, 1500, 2160],
+            font_size=8.5,
+        )
+        document.add_heading("Carry-forward decisions", level=2)
+        add_bullets(document, record.get("validation", {}).get("carry_forward_decisions", []), "No prior conclusion was approved for carry-forward.")
 
 
 def build(record: dict, output: Path) -> None:
+    global _ACTIVE_SOURCE_MAP
     validation = record.get("validation", {})
     if not validation.get("findings_approved") or not validation.get("brief_approved"):
         raise ValueError("findings and brief generation must be approved before building the DOCX")
+    enforce_route_content(record)
+    _ACTIVE_SOURCE_MAP = policy_source_map(record)
 
     document = Document()
     configure_styles(document)
@@ -879,7 +1158,11 @@ def build(record: dict, output: Path) -> None:
     product_title = validation.get("report_title") or PRODUCT_TITLES.get(
         record.get("workflow_mode", ""), "Acquisition Policy Impact Brief"
     )
-    set_document_identity(document, product_title)
+    for section in document.sections:
+        header = section.header.paragraphs[0]
+        header.text = f"1102tools  |  {product_title}"
+        header.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        set_run_font(header.runs[0], size=8, color=MID_GRAY)
     title = document.add_paragraph(style="Policy Title")
     title.alignment = WD_ALIGN_PARAGRAPH.LEFT
     title_run = title.add_run(product_title)
@@ -893,8 +1176,17 @@ def build(record: dict, output: Path) -> None:
     subtitle.paragraph_format.space_after = Pt(14)
     if subtitle.runs:
         set_run_font(subtitle.runs[0], size=13, color=MID_GRAY)
+    add_metadata(document, "Prepared for", scope.get("customer_organization"))
+    add_metadata(document, "Decision date", scope.get("decision_date"))
     add_metadata(document, "Agency or scope", agency)
     add_metadata(document, "As of", as_of)
+    if record.get("workflow_mode") == "refresh":
+        prior = scope.get("prior_analysis") or {}
+        prior_label = " ".join(
+            part for part in (str(prior.get("title", "")).strip(), f"({prior.get('date', '')})" if prior.get("date") else "")
+            if part
+        )
+        add_metadata(document, "Prior analysis", prior_label)
     add_metadata(document, "Audience lens", lens.title())
     add_metadata(document, "Status", "Documented published-source analysis; not a legal opinion or procurement-specific determination")
     rule = document.add_paragraph()
@@ -914,40 +1206,39 @@ def build(record: dict, output: Path) -> None:
     add_posture_banner(document, derive_planning_posture(record))
     document.add_paragraph(derive_front_page_interpretation(record))
     document.add_heading("What is established", level=2)
-    approved_findings = record.get("findings", [])
+    approved_findings = validation.get("focused_findings") or record.get("findings", [])
     for finding in approved_findings[:3]:
-        paragraph = document.add_paragraph(finding.get("text", ""), style="List Bullet")
+        paragraph = document.add_paragraph(reader_text(finding.get("text", "")), style="List Bullet")
         cite_ids(paragraph, finding.get("evidence_ids", []))
     if not approved_findings:
         document.add_paragraph("No approved finding was recorded.")
     document.add_heading("Immediate implications", level=2)
-    leading_impacts = impact_items(record, lens)[:3]
+    leading_impacts = (validation.get("focused_impacts") or impact_items(record, lens))[:3]
     add_bullets(
         document,
         leading_impacts,
         "Use the documented status to frame acquisition planning, timing, monitoring, and file support.",
     )
-    document.add_heading("Owners and Decision Gates", level=1)
-    gate_rows = []
-    for gate in derive_decision_gates(record):
-        evidence_text = gate.get("evidence", "")
-        evidence_ids = gate.get("evidence_ids", [])
-        if evidence_ids:
-            evidence_text += " [" + ", ".join(evidence_ids) + "]"
-        gate_rows.append(
-            [
-                gate.get("gate", ""),
-                evidence_text,
-                gate.get("owner", ""),
-                gate.get("timing", ""),
-            ]
+    decision_gates = derive_decision_gates(record)
+    if decision_gates:
+        document.add_heading("Owners and Decision Gates", level=1)
+        gate_rows = []
+        for gate in decision_gates:
+            evidence_text = gate.get("evidence", "") + source_suffix(gate.get("evidence_ids", []))
+            gate_rows.append(
+                [
+                    gate.get("gate", ""),
+                    evidence_text,
+                    gate.get("owner", ""),
+                    gate.get("timing", ""),
+                ]
+            )
+        add_table(
+            document,
+            ["Gate", "Decision-ready evidence", "Owner", "Timing"],
+            gate_rows,
+            [1800, 3160, 1700, 2700],
         )
-    add_table(
-        document,
-        ["Gate", "Decision-ready evidence", "Owner", "Timing"],
-        gate_rows,
-        [850, 3600, 1800, 3110],
-    )
     boundary = document.add_paragraph()
     boundary.paragraph_format.space_before = Pt(4)
     boundary.paragraph_format.space_after = Pt(6)
@@ -960,6 +1251,56 @@ def build(record: dict, output: Path) -> None:
     set_run_font(boundary_text, size=9.5, color=BLACK)
 
     add_route_native_analysis(document, record)
+
+    if record.get("workflow_mode") in FOCUSED_PRODUCTS:
+        supplied_actions = record.get("validation", {}).get("management_actions")
+        management_actions = (
+            [item for item in supplied_actions if isinstance(item, dict)]
+            if isinstance(supplied_actions, list)
+            else []
+        )
+        if management_actions and management_actions != decision_gates:
+            document.add_heading("Management Actions", level=1)
+            action_rows = []
+            for action in management_actions:
+                evidence_text = action.get("evidence", "")
+                if action.get("evidence_ids"):
+                    evidence_text += source_suffix(action["evidence_ids"])
+                action_rows.append([action.get("owner", ""), action.get("timing", ""), action.get("gate", ""), evidence_text])
+            add_table(document, ["Owner", "Timing", "Action / decision gate", "Evidence needed"], action_rows, [1700, 1900, 2200, 3560], font_size=9)
+
+        document.add_heading("Source Register", level=1)
+        focused_ids = focused_evidence_ids(record)
+        evidence = source_register_entries(record, focused_ids)
+        if evidence:
+            for item in evidence:
+                paragraph = document.add_paragraph()
+                paragraph.paragraph_format.space_after = Pt(3)
+                paragraph.add_run(f"[{item.get('source_id', '')}] ").bold = True
+                paragraph.add_run(f"{item.get('source_type', '').replace('_', ' ').title()}. {item.get('title', '')}. ")
+                url = item.get("canonical_url", "")
+                if url:
+                    add_hyperlink(paragraph, url, url, font_size=8.5)
+                elif item.get("locator"):
+                    paragraph.add_run(str(item.get("locator")))
+                date = item.get("as_of_date") or item.get("retrieved_at")
+                if date:
+                    paragraph.add_run(f". {date}")
+        else:
+            document.add_paragraph("No approved evidence item was recorded.")
+
+        limitation_text = " ".join(str(value) for value in record.get("limitations", []) if value)
+        limitation_text = (limitation_text + " " if limitation_text else "") + (
+            "This product does not provide legal advice. An authorized agency official must determine procurement-specific applicability."
+        )
+        paragraph = document.add_paragraph()
+        paragraph.paragraph_format.space_before = Pt(6)
+        paragraph.paragraph_format.space_after = Pt(2)
+        run = paragraph.add_run("Boundary: " + limitation_text)
+        set_run_font(run, size=8.5, color=MID_GRAY)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        document.save(output)
+        return
 
     document.add_heading("Question and Scope", level=1)
     document.add_paragraph(request.get("question", "Not stated"))
@@ -978,61 +1319,61 @@ def build(record: dict, output: Path) -> None:
         document.add_paragraph("No approved policy item was recorded.")
     document.add_heading("Approved findings", level=2)
     for finding in record.get("findings", []):
-        paragraph = document.add_paragraph(finding.get("text", ""), style="List Bullet")
+        paragraph = document.add_paragraph(reader_text(finding.get("text", "")), style="List Bullet")
         cite_ids(paragraph, finding.get("evidence_ids", []))
     if not record.get("findings"):
         document.add_paragraph("No approved finding was recorded.")
 
-    document.add_heading("Source Hierarchy and Authorities", level=1)
     hierarchy = validation.get("source_hierarchy", [])
-    add_bullets(
-        document,
-        hierarchy,
-        "The analysis distinguishes codified text, agency deviations, model text, rulemaking, guidance, comments, and supplied documents.",
-    )
+    if hierarchy:
+        document.add_heading("Source Hierarchy and Authorities", level=1)
+        add_bullets(document, hierarchy, "")
 
-    document.add_heading("Planning Scenarios", level=1)
     scenario_rows = []
     for scenario in derive_scenarios(record):
         treatment = scenario.get("treatment", "")
         evidence_ids = scenario.get("evidence_ids", [])
         if evidence_ids:
-            treatment += " [" + ", ".join(evidence_ids) + "]"
+            treatment += source_suffix(evidence_ids)
         scenario_rows.append(
             [scenario.get("scenario", ""), scenario.get("trigger", ""), treatment]
         )
-    add_table(
-        document,
-        ["Scenario", "Trigger", "Planning treatment"],
-        scenario_rows,
-        [1900, 3300, 4160],
-    )
+    if scenario_rows:
+        document.add_heading("Planning Scenarios", level=1)
+        add_table(
+            document,
+            ["Scenario", "Trigger", "Planning treatment"],
+            scenario_rows,
+            [1900, 3300, 4160],
+        )
 
-    document.add_heading("Change Timeline", level=1)
     timeline = record.get("timeline", [])
     if timeline:
+        document.add_heading("Change Timeline", level=1)
         add_table(
             document,
             ["Date", "Event", "Status", "Evidence"],
-            [[item.get("date", ""), item.get("event", ""), item.get("status", ""), ", ".join(item.get("evidence_ids", []))] for item in timeline],
+            [[item.get("date", ""), item.get("event", ""), item.get("status", ""), ", ".join(source_ids(item.get("evidence_ids", [])))] for item in timeline],
             [1250, 4700, 1850, 1560],
         )
-    else:
-        document.add_paragraph("No change event was required for the approved scope.")
-
-    document.add_heading("Government and Industry Impacts", level=1)
-    if lens == "neutral":
+    impacts = validation.get("impacts", {})
+    has_impacts = bool(impacts.get("government") or impacts.get("industry")) if isinstance(impacts, dict) else bool(impacts)
+    if has_impacts:
+        document.add_heading("Government and Industry Impacts", level=1)
+    if has_impacts and lens == "neutral":
         document.add_heading("Government lens", level=2)
         add_bullets(document, validation.get("impacts", {}).get("government", []), "No approved government impact was recorded.")
         document.add_heading("Industry lens", level=2)
         add_bullets(document, validation.get("impacts", {}).get("industry", []), "No approved industry impact was recorded.")
-    else:
+    elif has_impacts:
         document.add_heading(f"{lens.title()} lens", level=2)
         add_bullets(document, impact_items(record, lens), f"No approved {lens} impact was recorded.")
 
-    document.add_heading("Open Issues and Comment Deadlines", level=1)
     deadlines = validation.get("open_issues", [])
-    add_bullets(document, deadlines, "No open issue or comment deadline was identified within the approved scope.")
+    if deadlines or record.get("stakeholder_positions"):
+        document.add_heading("Open Issues and Comment Deadlines", level=1)
+    if deadlines:
+        add_bullets(document, deadlines, "")
     if record.get("stakeholder_positions"):
         document.add_heading("Observed stakeholder positions", level=2)
         add_table(
@@ -1044,15 +1385,18 @@ def build(record: dict, output: Path) -> None:
                     item.get("position", ""),
                     f"{item.get('reviewed_count', 0)} of {item.get('returned_count', 0)}; {item.get('sample_method', '')}",
                     item.get("limitations", ""),
-                    ", ".join(item.get("evidence_ids", [])),
+                    ", ".join(source_ids(item.get("evidence_ids", []))),
                 ]
                 for item in record["stakeholder_positions"]
             ],
             [1250, 3000, 1600, 2350, 1160],
         )
 
-    document.add_heading("Operational Considerations", level=1)
-    add_bullets(document, validation.get("operational_considerations", []), "No operational consideration was approved.")
+    operational = validation.get("operational_considerations", [])
+    if operational or record.get("conflicts") or record.get("unresolved_questions"):
+        document.add_heading("Operational Considerations", level=1)
+    if operational:
+        add_bullets(document, operational, "")
     if record.get("conflicts"):
         document.add_heading("Conflicts", level=2)
         add_table(
@@ -1077,43 +1421,35 @@ def build(record: dict, output: Path) -> None:
         document.add_heading("Unresolved questions", level=2)
         add_bullets(document, record["unresolved_questions"], "")
 
-    document.add_heading("Evidence Register", level=1)
-    evidence = record.get("evidence", [])
+    document.add_heading("Source Register", level=1)
+    evidence = source_register_entries(record)
     if evidence:
-        table = add_table(
-            document,
-            ["ID", "Type", "Source and locator", "Supported fact", "Limits"],
-            [
-                [
-                    item.get("id", ""),
-                    item.get("source_type", "").replace("_", " ").title(),
-                    f"{item.get('title', '')}\n{item.get('locator', '')}",
-                    item.get("fact", ""),
-                    item.get("limitations", ""),
-                ]
-                for item in evidence
-            ],
-            [850, 1400, 2350, 3000, 1760],
-            font_size=8.5,
-            add_spacer=False,
-        )
-        for row, item in zip(table.rows[1:], evidence):
+        for item in evidence:
+            paragraph = document.add_paragraph()
+            paragraph.paragraph_format.space_after = Pt(3)
+            paragraph.add_run(f"[{item.get('source_id', '')}] ").bold = True
+            paragraph.add_run(f"{item.get('source_type', '').replace('_', ' ').title()}. {item.get('title', '')}. ")
             url = item.get("canonical_url", "")
             if url:
-                paragraph = row.cells[2].add_paragraph()
-                paragraph.paragraph_format.space_before = Pt(2)
-                paragraph.paragraph_format.space_after = Pt(0)
-                add_hyperlink(paragraph, urlparse(url).netloc or "Official source", url, font_size=8.5)
+                add_hyperlink(paragraph, url, url, font_size=8.5)
+            elif item.get("locator"):
+                paragraph.add_run(str(item.get("locator")))
+            date = item.get("as_of_date") or item.get("retrieved_at")
+            if date:
+                paragraph.add_run(f". {date}")
     else:
         document.add_paragraph("No evidence item was recorded.")
 
-    document.add_section(WD_SECTION.NEW_PAGE)
-    document.add_heading("Limitations and Reserved Determinations", level=1)
-    add_bullets(document, record.get("limitations", []), "No additional limitation was recorded.")
-    document.add_paragraph(
-        "This brief does not provide legal advice, approve policy, select clauses, or determine which rule legally governs a specific procurement. "
-        "Confirm transaction-specific treatment with the responsible contracting, policy, and legal officials."
+    limitation_text = " ".join(str(value) for value in record.get("limitations", []) if value)
+    paragraph = document.add_paragraph()
+    paragraph.paragraph_format.space_before = Pt(6)
+    paragraph.paragraph_format.space_after = Pt(2)
+    run = paragraph.add_run(
+        "Boundary: "
+        + ((limitation_text + " ") if limitation_text else "")
+        + "This brief does not provide legal advice, approve policy, select clauses, or determine which rule legally governs a specific procurement."
     )
+    set_run_font(run, size=8.5, color=MID_GRAY)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     document.save(output)

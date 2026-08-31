@@ -1,6 +1,6 @@
 {
   "name": "acquisition-policy-workflow",
-  "version": "1.0.6",
+  "version": "1.0.12",
   "description": "Source-grounded federal acquisition policy research across eCFR, Federal Register, Regulations.gov, and Acquisition.gov.",
   "author": {
     "name": "AcqAgent",
