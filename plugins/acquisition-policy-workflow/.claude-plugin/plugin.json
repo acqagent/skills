@@ -1,0 +1,13 @@
+{
+  "name": "acquisition-policy-workflow",
+  "version": "1.0.6",
+  "description": "Source-grounded federal acquisition policy research across eCFR, Federal Register, Regulations.gov, and Acquisition.gov.",
+  "author": {
+    "name": "AcqAgent",
+    "url": "https://acqagent.ai"
+  },
+  "homepage": "https://acqagent.ai/skills/acquisition-policy-workflow",
+  "repository": "https://github.com/acqagent/skills",
+  "keywords": ["federal-acquisition", "acquisition-policy", "far", "rulemaking", "class-deviation"],
+  "license": "MIT"
+}

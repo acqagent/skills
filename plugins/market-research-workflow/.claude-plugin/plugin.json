@@ -1,0 +1,13 @@
+{
+  "name": "market-research-workflow",
+  "version": "1.0.6",
+  "description": "Staged FAR Part 10 market research with clear evidence, readiness, and decision boundaries.",
+  "author": {
+    "name": "AcqAgent",
+    "url": "https://acqagent.ai"
+  },
+  "homepage": "https://acqagent.ai/skills/market-research-workflow",
+  "repository": "https://github.com/acqagent/skills",
+  "keywords": ["federal-acquisition", "market-research", "far-part-10", "acquisition"],
+  "license": "MIT"
+}
