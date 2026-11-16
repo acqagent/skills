@@ -17,6 +17,14 @@
       "homepage": "https://acqagent.ai/skills/far-clause-checker"
     },
     {
+      "name": "nexus-presolicitation-brief",
+      "source": "./plugins/nexus-presolicitation-brief",
+      "description": "Pre-solicitation protest risk brief: describe a planned evaluation scheme and get a short Word brief of GAO sustains and contrasting denials on similar setups, with fixes to make before release and a documentation checklist. Bundles the Bid Protest Nexus MCP server (read-only, no sign-in).",
+      "version": "1.0.0",
+      "tags": ["gao", "bid-protest", "source-selection", "evaluation", "federal-acquisition", "mcp"],
+      "homepage": "https://acqagent.ai/nexus"
+    },
+    {
       "name": "acquisition-policy-workflow",
       "source": "./plugins/acquisition-policy-workflow",
       "description": "Source-grounded federal acquisition policy research across eCFR, Federal Register, Regulations.gov, and Acquisition.gov.",

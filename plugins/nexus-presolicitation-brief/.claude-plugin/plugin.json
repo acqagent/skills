@@ -1,0 +1,14 @@
+{
+  "name": "nexus-presolicitation-brief",
+  "version": "1.0.0",
+  "description": "Pre-solicitation protest risk brief built on the Bid Protest Nexus MCP. Describe a planned evaluation scheme and get a short Word brief of GAO sustains and contrasting denials on similar setups, with fixes to make before release and a documentation checklist. Bundles the Bid Protest Nexus server (read-only, no sign-in).",
+  "author": {
+    "name": "AcqAgent",
+    "email": "acqagent.ai@gmail.com",
+    "url": "https://acqagent.ai"
+  },
+  "homepage": "https://acqagent.ai/nexus",
+  "repository": "https://github.com/acqagent/skills",
+  "keywords": ["gao", "bid-protest", "source-selection", "evaluation", "federal-acquisition", "mcp"],
+  "license": "MIT"
+}

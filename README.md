@@ -9,6 +9,7 @@ In Claude Code:
 ```
 /plugin marketplace add acqagent/skills
 /plugin install far-clause-checker@acqagent
+/plugin install nexus-presolicitation-brief@acqagent
 /plugin install acquisition-policy-workflow@acqagent
 /plugin install market-research-workflow@acqagent
 ```
@@ -27,6 +28,7 @@ To update later:
 | Plugin | Version | What it does |
 |--------|---------|--------------|
 | [`far-clause-checker`](./plugins/far-clause-checker) | 4.0.0 | Validates FAR 52.2xx provisions and clauses against the acquisition.gov (GSA) Smart Matrix during the Revolutionary FAR Overhaul (RFO). Produces a standalone `.docx` compliance report. FAR only; HHSAR, DFARS, and other supplements are out of scope. |
+| [`nexus-presolicitation-brief`](./plugins/nexus-presolicitation-brief) | 1.0.0 | Pre-solicitation protest risk brief. Describe a planned evaluation scheme and get a short Word brief of GAO sustains and contrasting denials on similar setups, with fixes to make before release and a documentation checklist. Bundles the [Bid Protest Nexus](https://acqagent.ai/nexus) MCP server (read-only, no sign-in). |
 | [`acquisition-policy-workflow`](./plugins/acquisition-policy-workflow) | 1.0.12 | Researches current federal acquisition policy across eCFR, Federal Register, Regulations.gov, and Acquisition.gov with explicit evidence and decision boundaries. |
 | [`market-research-workflow`](./plugins/market-research-workflow) | 1.0.12 | Runs staged FAR Part 10 market research using SAM.gov and supporting public sources, with readiness checks and approval gates. |
 
@@ -47,6 +49,11 @@ To update later:
 │       └── references/
 │           ├── DATA_DICTIONARY.md
 │           └── Smart_Matrix__Acquisition_GOV.csv   # acquisition.gov Smart Matrix export
+│   ├── nexus-presolicitation-brief/
+│   │   ├── .claude-plugin/
+│   │   │   └── plugin.json
+│   │   ├── .mcp.json                 # Bid Protest Nexus MCP server (mcp.acqagent.ai)
+│   │   └── SKILL.md                  # skill prompt + workflow
 │   ├── acquisition-policy-workflow/
 │   │   ├── SKILL.md
 │   │   ├── references/
