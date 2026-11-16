@@ -11,9 +11,9 @@
     {
       "name": "far-clause-checker",
       "source": "./plugins/far-clause-checker",
-      "description": "Validates a user's clause list against the acquisition.gov Smart Matrix (FAR 52.2xx) and the JUL 2026 HHSAR Deviations matrix (HHSAR 352.2xx) during the Revolutionary FAR Overhaul (RFO), and produces a standalone .docx compliance report. FAR and HHSAR only; no DFARS.",
-      "version": "3.0.0",
-      "tags": ["far", "hhsar", "rfo", "compliance", "federal-acquisition", "clauses"],
+      "description": "Validates a user's FAR 52.2xx clause list against the acquisition.gov (GSA) Smart Matrix during the Revolutionary FAR Overhaul (RFO): existence, alternates, date currency, and Part 19 set-aside fit. Produces a standalone .docx compliance report. FAR only; HHSAR, DFARS, and other supplements are out of scope.",
+      "version": "4.0.0",
+      "tags": ["far", "rfo", "smart-matrix", "compliance", "federal-acquisition", "clauses"],
       "homepage": "https://acqagent.ai/skills/far-clause-checker"
     },
     {

@@ -1,6 +1,35 @@
 # CHANGELOG
 
-## v3 (current)
+## v4.0.0 (current)
+
+HHSAR removed. The acquisition.gov (GSA) Smart Matrix is now the only data source.
+
+### Removed
+
+- `references/HHSAR_Deviations_JUL_2026.xlsx` and every HHSAR 352.x check: status (Reserved, Removed), class deviation currency and citations, IBR, PCO fill-ins, coded applicability, missing required HHSAR clauses, and the HHSAR checklist.
+- The openpyxl dependency and its runtime pip install. The checker is now standard-library Python.
+- `--contract-type`, `--over-sat`, and `--commercial`. They only drove HHSAR applicability. They are accepted and ignored with a printed note so v3 invocations fail soft, like `--purpose` and `--method` before them.
+
+### Changed
+
+- HHSAR 352.x entries in a clause list are reported as Out of Scope, the same as DFARS 252.x.
+- Checklist mode now outputs the expected Part 19 set-aside clauses for the stated set-aside, plus the FAR inventory for `--parts`. Without `--parts` it notes that no inventory was built.
+- `--data-dir` replaced by `--matrix` (path to the CSV). Leave it off and the script finds the CSV in `references/`.
+- `--small-biz` now rejects values other than NONE, SB, 8A, HUBZONE, SDVOSB, and WOSB (v3 silently accepted typos).
+- Prescribed In references are cleaned: stray commas are stripped (52.242-3 reads `42.709-7,` in the GSA data) and a blank reference (52.247-63) is reported as `not listed`.
+- Date parsing tries every month-year match in a line instead of giving up on the first non-month word.
+- The report step loads the docx skill by name instead of a hard-coded path.
+- `DATA_DICTIONARY.md` rewritten for the Smart Matrix only.
+
+### Data currency
+
+The bundled Smart Matrix was verified current on November 15, 2026. It matched a fresh acquisition.gov export row for row (only the line endings differed) and the live Smart Matrix page (official FAR through FAC 2026-01, effective March 13, 2026; newest clause dates Mar 2026).
+
+### Test results
+
+On an 11-entry clause list covering every FAR status branch (current, date mismatch, alternate found and not found, no date, not found, set-aside mismatch) plus HHSAR, DFARS, and unparseable lines, FAR results and missing set-aside output were identical to v3. Checklist mode: HUBZONE with parts 19 and 27 gives 6 expected set-aside clauses and 44 inventory rows; WOSB with part 19 gives 23 inventory rows.
+
+## v3
 
 Both bundled data sources were replaced, and the checker was redesigned around what the new files can actually support.
 

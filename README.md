@@ -26,7 +26,7 @@ To update later:
 
 | Plugin | Version | What it does |
 |--------|---------|--------------|
-| [`far-clause-checker`](./plugins/far-clause-checker) | 3.0.0 | Validates FAR provisions and clauses against the Revolutionary FAR Overhaul (RFO) and HHS Agency Deviation Matrix. Produces a standalone `.docx` compliance report. FAR only; no DFARS. |
+| [`far-clause-checker`](./plugins/far-clause-checker) | 4.0.0 | Validates FAR 52.2xx provisions and clauses against the acquisition.gov (GSA) Smart Matrix during the Revolutionary FAR Overhaul (RFO). Produces a standalone `.docx` compliance report. FAR only; HHSAR, DFARS, and other supplements are out of scope. |
 | [`acquisition-policy-workflow`](./plugins/acquisition-policy-workflow) | 1.0.12 | Researches current federal acquisition policy across eCFR, Federal Register, Regulations.gov, and Acquisition.gov with explicit evidence and decision boundaries. |
 | [`market-research-workflow`](./plugins/market-research-workflow) | 1.0.12 | Runs staged FAR Part 10 market research using SAM.gov and supporting public sources, with readiness checks and approval gates. |
 
@@ -46,8 +46,7 @@ To update later:
 │       │   └── far_checker.py        # the runner
 │       └── references/
 │           ├── DATA_DICTIONARY.md
-│           ├── Revolutionary_FAR_Overhaul_HHS_Matrix.csv
-│           └── WarU_Provision___Clause_Matrix__22_Apr_2026.xlsx
+│           └── Smart_Matrix__Acquisition_GOV.csv   # acquisition.gov Smart Matrix export
 │   ├── acquisition-policy-workflow/
 │   │   ├── SKILL.md
 │   │   ├── references/

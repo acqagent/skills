@@ -1,153 +1,121 @@
 ---
 name: far-clause-checker
-description: FAR and HHSAR provision and clause compliance checker for the Revolutionary FAR Overhaul (RFO). Use this skill whenever the user asks about FAR clauses, HHSAR clauses, provisions, clause matrices, RFO compliance, clause applicability, incorporation by reference, deviation dates, class deviations, removed or reserved clauses, contract clause checks, Section I validation, or validating FAR 52.2xx or HHSAR 352.2xx provisions against the restructured FAR. Also trigger when the user says things like 'check my clauses', 'run the FAR checker', 'clause compliance', 'RFO check', 'which clauses apply', 'is this clause still valid', 'what changed in the FAR overhaul', or mentions HHSAR deviations, the Smart Matrix, or provision/clause worksheets. FAR and HHSAR only; disregard DFARS content. Takes the user's clause list (or contract parameters for a checklist), validates against the acquisition.gov Smart Matrix and JUL 2026 HHSAR deviation matrix, and produces a standalone compliance report.
+description: FAR provision and clause compliance checker for the Revolutionary FAR Overhaul (RFO), using the acquisition.gov (GSA) Smart Matrix as its only baseline. Use whenever the user asks about FAR clauses, provisions, clause matrices, RFO compliance, clause dates or currency, alternates, removed or reserved FAR clauses, Section I validation, Part 19 set-aside clauses, or validating FAR 52.2xx provisions against the restructured FAR. Also trigger on 'check my clauses', 'run the FAR checker', 'clause compliance', 'RFO check', 'which clauses apply', 'is this clause still valid', 'what changed in the FAR overhaul', or mentions of the Smart Matrix or provision/clause worksheets. FAR 52.x only; HHSAR, DFARS, and other agency supplements are out of scope. Takes the user's clause list (or a set-aside and FAR parts for a checklist), validates it against the Smart Matrix, and produces a standalone compliance report.
 ---
 
-# FAR Clause Checker (v3)
+# FAR Clause Checker (v4)
 
-Validates FAR 52.2xx and HHSAR 352.2xx provisions and clauses against current baselines during the Revolutionary FAR Overhaul (RFO) period, and produces a standalone compliance report as a Word document.
+Validates FAR 52.2xx provisions and clauses against the acquisition.gov (GSA) Smart Matrix during the Revolutionary FAR Overhaul (RFO) period, and produces a standalone compliance report as a Word document.
 
-## Version notes (v3)
+## Version notes (v4)
 
-The v3 data sources replaced both v2 files, and the two new files have different shapes AND different semantics:
+- HHSAR removed. The JUL 2026 HHSAR deviation workbook, every 352.x check (status, class deviation currency, IBR, PCO fill-ins, applicability codes, missing required HHSAR clauses), and the HHSAR checklist are gone.
+- The Smart Matrix CSV is the only data source. The checker is standard-library Python; openpyxl is no longer needed.
+- `--contract-type`, `--over-sat`, and `--commercial` are retired because they only drove HHSAR applicability. They are accepted and ignored with a printed note. `--small-biz` and `--parts` remain.
+- 352.x entries in a clause list are now reported as Out of Scope, the same as DFARS 252.x.
+- Prescribed In references are cleaned: stray commas are stripped, and a blank reference (52.247-63 in the GSA data) shows as `not listed`.
+- `references/HHSAR_Deviations_JUL_2026.xlsx` was deleted, and `references/DATA_DICTIONARY.md` now covers the Smart Matrix only. FAR results are identical to v3.
 
-- The old DAU matrix (xlsx, applicability grid, RFO flags, IBR, full text) was replaced by the acquisition.gov **Smart Matrix** (csv). The Smart Matrix is a lean FAR 52.2xx baseline: number, title, effective date, prescription reference, P or C. It has NO applicability grid, so the v2 parameter-driven "generate the applicable clause list" workflow no longer exists for FAR clauses.
-- The old HHS disposition csv (FAR clause dispositions) was replaced by the **HHSAR Deviations JUL 2026** workbook (xlsx). This file covers HHSAR 352.2xx clauses, not FAR clause dispositions: status (Active, Reserved, Removed), class deviation citations, dated deviation annotations, IBR, PCO fill-ins, UCF sections, and coded applicability.
-- The two files are disjoint clause families with no join key. 52.x lookups go to the Smart Matrix; 352.x lookups go to the HHSAR matrix.
-- The primary input is now the user's clause list. Real user-supplied dates anchor the date checks, which fixes the v2.1 known issue where matrix dates were used as a proxy and inflated the Action Needed count.
+## Data source
 
-## Data sources
+`references/Smart_Matrix__Acquisition_GOV.csv` in this skill's folder: the FAR 52.2xx baseline (809 rows: 610 clause numbers plus 199 alternates). It is a static snapshot, **verified current on November 15, 2026**: it matched the live acquisition.gov Smart Matrix row for row (official FAR through FAC 2026-01, effective March 13, 2026; newest clause dates MAR 2026). If the user says a newer Smart Matrix has been published, or a clause date looks stale, tell them the check is only as current as this file and offer to compare their newer copy.
 
-Two files in `references/`:
+Columns (the script already handles all quirks):
 
-1. **Smart Matrix (csv)**: the FAR 52.2xx baseline (809 rows: 610 clause numbers plus 199 alternates).
-2. **HHSAR Deviations JUL 2026 (xlsx)**: HHSAR 352.2xx clauses (85 rows, 75 distinct numbers) with status, deviations, and applicability codes.
+| Column | Contents | Quirks |
+|---|---|---|
+| Provision or Clause (P or C) | Number and title in one cell, e.g. `52.203-5 Covenant Against Contingent Fees.` | Alternates are `52.203-6_Alternate I` with no title. The underscore defeats a regex `\b`, so the script anchors with `(?<![A-Za-z])`. Some titles have runs of spaces. |
+| Effective Date | `May 2014`, `June 2010`, `NOV 2023` | A few contain non-breaking spaces or a tab. |
+| Prescribed In | FAR prescription reference, e.g. `19.507(e)`; the only applicability signal in the file | 52.242-3 has a stray trailing comma and 52.247-63 has only a comma. The script strips the comma and shows the blank as `not listed`. |
+| P or C | `P` (182 rows) or `C` (627 rows) | |
 
-Before parsing either file directly, read `references/DATA_DICTIONARY.md`. It documents the column maps, the applicability code vocabulary, and the data quirks (a typo'd clause number, RESERVED and DO NOT USE prefixes, HTML artifacts, duplicate numbers, messy dates). The bundled script already handles all of these.
+There is no applicability grid, no RFO flag, no IBR column, and no full text.
 
 ## Workflow
 
 ### Step 1: Gather inputs
 
-The most useful input is the user's actual clause list (their solicitation or contract Section I, or any list of clause numbers with dates). Ask for it first. Accept any reasonable format; the script parses each line for a clause number, an optional Alternate, an optional month-year date, and the word "deviation" if cited. Titles are ignored.
+Ask first for the user's clause list (solicitation or contract Section I, or any list of clause numbers with dates). Accept any reasonable format; the parser pulls each line's clause number, any Alternate, and any month-year date, and ignores titles.
 
 Also collect, with defaults if the user does not care:
 
-1. **Contract type**: FFP, FFP_LOE (level of effort), COST, or TM (time and materials / labor hour). Default FFP.
-2. **Over the SAT?**: yes or no. "No" also stands in for simplified acquisitions. Default yes.
-3. **Commercial?**: yes or no. Default no.
-4. **Small business set-aside**: NONE, SB, 8A, HUBZONE, SDVOSB, or WOSB. Default NONE.
-5. **FAR parts focus** (optional): part numbers for the FAR inventory in checklist mode, e.g., "19, 27".
+1. **Small business set-aside**: NONE, SB, 8A, HUBZONE, SDVOSB, or WOSB. Default NONE.
+2. **FAR parts** (checklist mode): part numbers for the inventory, e.g. "19, 27".
 
-These parameters drive the HHSAR applicability checks and the set-aside checks. They cannot filter FAR clauses (the Smart Matrix has no applicability grid); FAR applicability comes from each clause's prescription reference.
+If the user has no clause list, run checklist mode. Do not re-ask for anything the user already gave.
 
-If the user has no clause list, run checklist mode instead (Step 3) to build an HHSAR checklist and a FAR inventory for their parts of interest.
+### Step 2: Run the checker
 
-Do not re-ask for anything the user already provided.
+Run `scripts/far_checker.py` (standard-library Python). It finds the CSV in `references/` on its own; pass `--matrix` only to use a different copy, such as a newer Smart Matrix export the user provides.
 
-### Step 2: Know the data
-
-Read `references/DATA_DICTIONARY.md` if you need to parse the files directly or explain a finding's provenance. For normal runs the script is the parser; do not hand-roll pandas over the xlsx.
-
-### Step 3: Run the checker
-
-Check mode (clause list provided):
+Check mode (clause list provided; file path or inline `;`-separated list):
 
 ```bash
 python3 scripts/far_checker.py \
-  --clauses /path/to/clause_list.txt \
-  --contract-type FFP --over-sat yes --commercial no \
+  --clauses "52.212-5 (Mar 2026); 52.203-6 Alt I (Jun 2020); 52.219-14" \
   --small-biz NONE --output report.json
-```
-
-`--clauses` also accepts an inline list, entries separated by semicolons:
-
-```bash
-python3 scripts/far_checker.py \
-  --clauses "52.212-5 (Mar 2026); 352.203-70 (JUN 2026) Deviation" \
-  --contract-type FFP --over-sat yes --output report.json
 ```
 
 Checklist mode (no clause list):
 
 ```bash
-python3 scripts/far_checker.py \
-  --contract-type COST --over-sat yes --commercial no \
-  --small-biz 8A --parts 19,27 --output checklist.json
+python3 scripts/far_checker.py --small-biz 8A --parts 19,27 --output checklist.json
 ```
 
-Notes:
+For column details and data quirks, see `references/DATA_DICTIONARY.md`; for normal runs the script is the parser.
 
-- The script auto-discovers the data files in `references/` (csv with "matrix" or "smart" in the name; xlsx with "hhsar" or "deviation"). Point `--data-dir` elsewhere to override.
-- The v2 arguments `--purpose` and `--method` are retired. They are accepted but ignored, with a printed note, because the Smart Matrix carries no purpose or method columns.
-- `--contract-type` values changed in v3: FFP, FFP_LOE, COST, TM (v2 used FP, CR, TM).
+### Step 3: Generate the report
 
-### Step 4: Generate the report
-
-Read the output JSON and generate a Word document. Read `/mnt/skills/public/docx/SKILL.md` first and follow it. Structure the report as described under "Report structure" below. Save the JSON alongside the docx if the user wants the raw data.
+Load the docx skill with the Skill tool and follow it. Build the Word report from the JSON using the structure below. Save the JSON alongside if the user wants the raw data.
 
 ## What the checker does
 
-Check mode, per clause:
+Check mode, per FAR 52.x entry:
 
-**FAR 52.2xx (against the Smart Matrix)**
+1. **Existence**: numbers not in the Smart Matrix are CRITICAL Not Found (wrong number, removed or reserved in the restructured FAR, or agency-unique).
+2. **Alternate existence**: a cited Alternate missing from the matrix is a Review finding that lists the known alternates.
+3. **Date currency**: the user's date vs the matrix effective date. Older is a CRITICAL Date Mismatch; a missing date is Review.
+4. **Set-aside fit** (Part 19): clauses that conflict with the stated set-aside are flagged for review.
 
-1. **Existence**: unknown numbers are flagged CRITICAL (wrong number, removed or reserved in the restructured FAR, or agency-unique).
-2. **Alternate existence**: a cited Alternate that is not in the matrix is flagged, and the known alternates are listed.
-3. **Date currency**: the user's date vs the matrix effective date. Older is a CRITICAL Date Mismatch; missing or unparseable dates go to Review.
-4. **Set-aside fit** (Part 19): clauses that conflict with the stated set-aside are flagged (e.g., 52.219-3 in a non-HUBZone action).
+List level: **missing set-aside clauses**, the expected 52.219 clauses for the stated set-aside that are absent.
 
-**HHSAR 352.2xx (against the HHSAR matrix)**
+Anything that is not 52.x (HHSAR 352.x, DFARS 252.x, other supplements) is Out of Scope; lines with no clause number are Unparseable.
 
-5. **Status**: Reserved and Removed (DO NOT USE OR ENFORCE) clauses are CRITICAL; the report cites the class deviation or court order behind the status.
-6. **Deviation currency**: the user's date vs the current version or class deviation date. Older is a CRITICAL Date Mismatch. If the user cites a deviation the matrix does not show, that is a Review finding; if the matrix shows a deviation the user did not cite, the report notes the citation to add.
-7. **IBR**: clauses not authorized for incorporation by reference get a full-text-required warning.
-8. **PCO fill-ins**: clauses with contracting officer fill-ins get a verify-completed note.
-9. **Applicability fit**: the coded applicability (e.g., R-Over SAT, A-Cost Only) is evaluated against the contract type, SAT position, and commercial flag; mismatches are flagged for review.
+Checklist mode outputs the expected set-aside clauses for the stated set-aside, plus a FAR inventory for the requested parts with dates, P or C, prescription references, alternates, and set-aside verdicts. Without `--parts` there is no inventory; ask which parts to list.
 
-**List-level checks**
+## Set-aside rules (FAR Part 19)
 
-10. **Missing required HHSAR clauses**: Active HHSAR clauses whose R-code fits the action but that are absent from the list.
-11. **Missing set-aside clauses**: expected 52.219 clauses for the stated set-aside that are absent from the list.
+Hand-maintained in the script (all 15 numbers are present in the bundled Smart Matrix):
 
-Checklist mode instead outputs: HHSAR clauses grouped into required, as-applicable, and not-applicable for the given parameters (with prescriptions, IBR, UCF, fill-in flags, and deviation citations), plus a FAR clause inventory for the requested parts with prescription references and set-aside annotations.
-
-## Set-aside filtering (FAR Part 19)
-
-Unchanged from v2. The rules table in the script maps twelve Part 19 clauses:
-
-- 52.219-1, 52.219-8, 52.219-28: always expected (universal)
+- 52.219-1, 52.219-8, 52.219-28: always expected
 - 52.219-3, 52.219-4: HUBZone only
-- 52.219-6, 52.219-7: total or partial small business set-aside only
+- 52.219-6, 52.219-7: small business set-aside (SB) only
 - 52.219-14: any small business set-aside
 - 52.219-17, 52.219-18: 8(a) only
 - 52.219-27: SDVOSB only
 - 52.219-29, 52.219-30: WOSB only
 - 52.219-9, 52.219-16: NONE only (large-business prime with subcontracting plan)
 
+If the user reports that RFO Part 19 changed any of these, update the rules table in the script for that run and say so in the report.
+
 ## Report structure
 
-Title page: procurement parameters, run date, data sources (Smart Matrix; HHSAR Deviations JUL 2026).
+Title page: set-aside, FAR parts (if any), run date, data source (acquisition.gov Smart Matrix, verified current November 15, 2026).
 
-Check-mode sections:
+Check mode:
 
 1. **Executive summary**: counts by status, critical findings, warnings.
-2. **Status legend**: Valid (green), Action Needed / Date Mismatch (red), Removed or Reserved (red), Review (yellow), Not Found (gray).
-3. **FAR clauses**: table with number, alternate, title, user date, current effective date, status, findings.
-4. **HHSAR clauses**: table with number, title, user date, current date, HHSAR status, class deviation citation, IBR, UCF, applicability code, status, findings.
-5. **Missing required HHSAR clauses** for this action type.
-6. **Missing set-aside clauses** for the stated set-aside.
-7. **Out-of-scope and unparseable entries** (DFARS numbers, garbage lines).
+2. **Status legend**: Valid (green), Action Needed / Date Mismatch (red), Review (yellow), Not Found (gray).
+3. **FAR clauses**: number, alternate, title, user date, current effective date, prescribed in, status, findings.
+4. **Missing set-aside clauses** for the stated set-aside.
+5. **Out-of-scope and unparseable entries** (HHSAR, DFARS, and lines without a clause number).
 
-Checklist-mode sections: parameters, HHSAR required, HHSAR as-applicable (with prescriptions), HHSAR not-applicable to this action, FAR inventory by part.
+Checklist mode: parameters, expected set-aside clauses, FAR inventory by part.
 
 Keep findings verbatim from the JSON where practical; they are written to be report-ready.
 
 ## Important notes
 
-- The Smart Matrix carries no applicability grid. Never claim a FAR clause "applies" to a contract type or purpose based on the matrix; applicability comes from the prescription at the cited FAR reference. The report should say "prescribed in X" and leave FAR applicability judgments to the prescription text.
-- HHSAR applicability codes ARE authoritative for HHSAR clauses and the checker evaluates them.
-- Clause families never cross files: 52.x is FAR (Smart Matrix), 352.x is HHSAR. DFARS 252.x is out of scope; say so rather than guessing.
-- Dates in both files are messy (mixed casing, full month names, non-breaking spaces, annotations like "(RFO DEVIATION)" and "Court Order"). The script normalizes these; if parsing by hand, see the data dictionary.
-- The JUL 2026 HHSAR file contains one typo'd number (352.215.70 with a period). The script normalizes it to 352.215-70 on load and on user input.
-- If the user's clause list includes titles, that is fine; the parser ignores everything except the number, the Alternate, the date, and the word "deviation".
+- Never claim a FAR clause "applies" to a contract type or purpose based on the matrix. Say "prescribed in X" and leave applicability to the prescription text.
+- FAR 52.x only. If the user asks about HHSAR, DFARS, or another supplement, say it is out of scope for this skill rather than guessing.
+
